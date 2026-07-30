@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="page-title">{{ t('exp_title') }}</h1>
+<p class="page-subtitle">{{ t('exp_subtitle') }}</p>
+<div class="card">
+  <h3>{{ t('exp_available') }}</h3>
+  <p style="margin:12px 0">
+    <a href="/api/export/xlsx" class="btn btn-primary">{{ t('exp_btn') }}</a>
+  </p>
+  <p style="font-size:13px;color:var(--text-light)">{{ t('exp_all_pages') }}</p>
+</div>
+{% endblock %}

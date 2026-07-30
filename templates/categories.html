@@ -1,0 +1,246 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Tranzaksiya Kategoriyalari</h1>
+    <p class="page-subtitle">Kategoriya daraxti · Yo'nalish · Klassifikatsiya</p>
+  </div>
+</div>
+
+{% if msg %}{{ msg|safe }}{% endif %}
+
+<div class="stats">
+  <div class="stat">
+    <div class="label">Jami</div>
+    <div class="value">{{ tree|length }}</div>
+    <div class="sub">Kategoriyalar</div>
+  </div>
+  <div class="stat">
+    <div class="label">Faol</div>
+    <div class="value" style="color:var(--done)">{{ tree|selectattr('is_active','eq',1)|list|length }}</div>
+    <div class="sub">is_active = 1</div>
+  </div>
+  <div class="stat">
+    <div class="label">Tashqi</div>
+    <div class="value" style="color:var(--blue)">{{ tree|selectattr('direction','eq','external')|list|length }}</div>
+    <div class="sub">external</div>
+  </div>
+  <div class="stat">
+    <div class="label">Ichki</div>
+    <div class="value" style="color:var(--amber)">{{ tree|selectattr('direction','eq','internal')|list|length }}</div>
+    <div class="sub">internal</div>
+  </div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 320px;gap:20px;align-items:start">
+
+{# ── Category tree table ── #}
+<div class="card" style="margin-bottom:0">
+  <h3>Kategoriyalar ro'yxati</h3>
+  {% if tree %}
+  <table>
+    <thead><tr>
+      <th>Kod</th>
+      <th>Nomi (uz)</th>
+      <th>Yo'nalish</th>
+      <th style="text-align:center">Xarajat</th>
+      <th style="text-align:center">CF</th>
+      <th style="text-align:center">Tartib</th>
+      <th style="text-align:center">Holat</th>
+      <th style="text-align:center">Amallar</th>
+    </tr></thead>
+    <tbody>
+    {% for cat in tree %}
+      {% if cat.direction == 'external' %}
+        {% set dir_style = 'background:#EFF6FF;color:var(--blue);border:1px solid #BFDBFE' %}
+        {% set dir_label = 'Tashqi' %}
+      {% elif cat.direction == 'internal' %}
+        {% set dir_style = 'background:#FFFBEB;color:#92400E;border:1px solid #FDE68A' %}
+        {% set dir_label = 'Ichki' %}
+      {% else %}
+        {% set dir_style = 'background:#F5F3FF;color:#6D28D9;border:1px solid #DDD6FE' %}
+        {% set dir_label = 'Ikkalasi' %}
+      {% endif %}
+
+      <tr id="row-{{ cat.id }}" {% if not cat.is_active %}style="opacity:0.5"{% endif %}>
+        <td style="font-family:monospace;font-size:12px;font-weight:600">
+          {% if cat.depth > 0 %}<span style="color:var(--text-light);margin-right:2px">{{ '└─ ' * cat.depth }}</span>{% endif %}{{ cat.code }}
+        </td>
+        <td>
+          {{ cat.name_uz }}
+          {% if cat.name_en %}<br><span style="font-size:11px;color:var(--text-light)">{{ cat.name_en }}</span>{% endif %}
+          {% if cat.notes %}<br><span style="font-size:11px;color:var(--text-light);font-style:italic">{{ cat.notes }}</span>{% endif %}
+        </td>
+        <td><span class="badge" style="{{ dir_style }}">{{ dir_label }}</span></td>
+        <td style="text-align:center">{% if cat.affects_project_cost %}<span style="color:var(--done)">✓</span>{% else %}<span style="color:var(--text-light)">—</span>{% endif %}</td>
+        <td style="text-align:center">{% if cat.affects_cash_flow %}<span style="color:var(--done)">✓</span>{% else %}<span style="color:var(--text-light)">—</span>{% endif %}</td>
+        <td style="text-align:center;font-size:12px;color:var(--text-light)">{{ cat.sort_order }}</td>
+        <td style="text-align:center">
+          {% if cat.is_active %}<span class="badge" style="background:#F0FDF4;color:var(--done);border:1px solid #BBF7D0">Faol</span>
+          {% else %}<span class="badge" style="background:#FEF2F2;color:#DC2626;border:1px solid #FECACA">Nofaol</span>{% endif %}
+        </td>
+        <td style="text-align:center;white-space:nowrap">
+          <button type="button" class="btn btn-sm btn-outline" onclick="toggleCatEdit({{ cat.id }})">✎ Tahrir</button>
+          <form method="post" style="display:inline;margin-left:4px"
+                onsubmit="return confirm('{{ cat.code }} kategoriyasini o\'chirishni tasdiqlaysizmi?')">
+            <input type="hidden" name="action" value="delete">
+            <input type="hidden" name="id" value="{{ cat.id }}">
+            <button type="submit" class="btn btn-sm btn-danger">✕</button>
+          </form>
+        </td>
+      </tr>
+
+      {# Inline edit row #}
+      <tr id="edit-cat-{{ cat.id }}" style="display:none;background:var(--bg)">
+        <td colspan="8" style="padding:16px 20px">
+          <form method="post">
+            <input type="hidden" name="action" value="edit">
+            <input type="hidden" name="id" value="{{ cat.id }}">
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:12px">
+              <div class="field" style="margin:0">
+                <label>Kod *</label>
+                <input type="text" name="code" value="{{ cat.code }}" required style="font-family:monospace;font-weight:700;text-transform:uppercase">
+              </div>
+              <div class="field" style="margin:0">
+                <label>Nomi (uz) *</label>
+                <input type="text" name="name_uz" value="{{ cat.name_uz }}" required>
+              </div>
+              <div class="field" style="margin:0">
+                <label>Nomi (en)</label>
+                <input type="text" name="name_en" value="{{ cat.name_en or '' }}">
+              </div>
+              <div class="field" style="margin:0">
+                <label>Nomi (ru)</label>
+                <input type="text" name="name_ru" value="{{ cat.name_ru or '' }}">
+              </div>
+              <div class="field" style="margin:0">
+                <label>Ota-kategoriya</label>
+                <select name="parent_id">
+                  <option value="">— Asosiy —</option>
+                  {% for c in tree %}
+                    {% if c.id != cat.id and c.depth == 0 %}
+                      <option value="{{ c.id }}" {% if cat.parent_id == c.id %}selected{% endif %}>{{ c.code }} — {{ c.name_uz }}</option>
+                    {% endif %}
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="field" style="margin:0">
+                <label>Yo'nalish</label>
+                <select name="direction">
+                  <option value="external" {% if cat.direction=='external' %}selected{% endif %}>Tashqi (external)</option>
+                  <option value="internal" {% if cat.direction=='internal' %}selected{% endif %}>Ichki (internal)</option>
+                  <option value="both" {% if cat.direction=='both' %}selected{% endif %}>Ikkalasi (both)</option>
+                </select>
+              </div>
+              <div class="field" style="margin:0">
+                <label>Tartib raqami</label>
+                <input type="number" name="sort_order" value="{{ cat.sort_order }}" min="1" max="9999">
+              </div>
+              <div class="field" style="margin:0">
+                <label>Izoh</label>
+                <input type="text" name="notes" value="{{ cat.notes or '' }}">
+              </div>
+            </div>
+            <div style="display:flex;gap:16px;margin-bottom:12px;font-size:13px">
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                <input type="checkbox" name="affects_project_cost" {% if cat.affects_project_cost %}checked{% endif %}> Xarajatga ta'sir
+              </label>
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                <input type="checkbox" name="affects_cash_flow" {% if cat.affects_cash_flow %}checked{% endif %}> Pul oqimiga ta'sir
+              </label>
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                <input type="checkbox" name="is_active" {% if cat.is_active %}checked{% endif %}> Faol
+              </label>
+            </div>
+            <div style="display:flex;gap:8px">
+              <button type="submit" class="btn btn-primary btn-sm">Saqlash</button>
+              <button type="button" class="btn btn-outline btn-sm" onclick="toggleCatEdit({{ cat.id }})">Bekor qilish</button>
+            </div>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div style="text-align:center;padding:40px 0;color:var(--text-light)">
+    <div style="font-size:32px;margin-bottom:12px">🗂</div>
+    <div>Hali kategoriyalar mavjud emas.</div>
+    <div style="font-size:12px;margin-top:6px">O'ng tarafdagi formadan birinchi kategoriyani qo'shing.</div>
+  </div>
+  {% endif %}
+</div>
+
+{# ── Add form (right column) ── #}
+<div class="card" style="margin-bottom:0">
+  <h3>Yangi kategoriya</h3>
+  <form method="post">
+    <input type="hidden" name="action" value="add">
+    <div class="field">
+      <label>Kod * <span style="font-size:11px;color:var(--text-light)">(noyob, harflar)</span></label>
+      <input type="text" name="code" placeholder="TUSHUM" required
+             style="font-family:monospace;font-weight:700;text-transform:uppercase"
+             oninput="this.value=this.value.toUpperCase()">
+    </div>
+    <div class="field">
+      <label>Nomi (uz) *</label>
+      <input type="text" name="name_uz" placeholder="To'lov tushumlari" required>
+    </div>
+    <div class="field">
+      <label>Nomi (en)</label>
+      <input type="text" name="name_en" placeholder="Income receipts">
+    </div>
+    <div class="field">
+      <label>Nomi (ru)</label>
+      <input type="text" name="name_ru" placeholder="Поступления доходов">
+    </div>
+    <div class="field">
+      <label>Ota-kategoriya</label>
+      <select name="parent_id">
+        <option value="">— Asosiy —</option>
+        {% for c in roots %}
+          <option value="{{ c.id }}">{{ c.code }} — {{ c.name_uz }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label>Yo'nalish</label>
+      <select name="direction">
+        <option value="external">Tashqi (external)</option>
+        <option value="internal">Ichki (internal)</option>
+        <option value="both">Ikkalasi (both)</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Tartib raqami</label>
+      <input type="number" name="sort_order" value="100" min="1" max="9999">
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px;font-size:13px">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+        <input type="checkbox" name="affects_project_cost"> Xarajatga ta'sir
+      </label>
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+        <input type="checkbox" name="affects_cash_flow" checked> Pul oqimiga ta'sir
+      </label>
+    </div>
+    <div class="field">
+      <label>Izoh (ixtiyoriy)</label>
+      <input type="text" name="notes" placeholder="">
+    </div>
+    <button type="submit" class="btn btn-primary" style="width:100%">+ Kategoriya qo'shish</button>
+  </form>
+</div>
+
+</div>{# end grid #}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleCatEdit(id) {
+  const row = document.getElementById('edit-cat-' + id);
+  if (row) row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
+}
+</script>
+{% endblock %}

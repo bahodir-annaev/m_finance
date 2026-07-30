@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="page-title">{{ t('imp_title') }}</h1>
+<p class="page-subtitle">{{ t('imp_subtitle') }}</p>
+
+{% if result_html %}{{ result_html|safe }}{% endif %}
+
+<div class="card">
+  <h3>{{ t('imp_card_title') }}</h3>
+  <form method="POST" enctype="multipart/form-data">
+    <div class="grid-2">
+      <div class="field"><label>{{ t('imp_file_label') }}</label>
+        <input type="file" name="file" accept=".xlsx,.xls"></div>
+      <div class="field"><label>{{ t('imp_period') }}</label>
+        <select name="period">
+          <option value="all">{{ t('imp_period_all') }}</option>
+          <option value="2025-06">2025 Iyun</option><option value="2025-07">2025 Iyul</option>
+          <option value="2025-08">2025 Avgust</option><option value="2025-09">2025 Sentyabr</option>
+          <option value="2025-10">2025 Oktyabr</option><option value="2025-11">2025 Noyabr</option>
+          <option value="2025-12">2025 Dekabr</option><option value="2026-01">2026 Yanvar</option>
+          <option value="2026-02">2026 Fevral</option><option value="2026-03">2026 Mart</option>
+        </select></div>
+    </div>
+    <button type="submit" class="btn btn-primary" style="margin-top:12px">{{ t('imp_btn') }}</button>
+  </form>
+</div>
+
+<div class="card">
+  <h3>{{ t('imp_what_title') }}</h3>
+  <ol style="padding-left:20px;line-height:1.8;font-size:13px">
+    <li>22 NIZAM xodimi avtomatik taniladi va V8 nomlariga map qilinadi</li>
+    <li>Non-billable (Office, HR, Nizam UI...) avtomatik o'tkazib yuboriladi</li>
+    <li>HH:MM formatdagi soatlar parslanadi va bazaga yoziladi</li>
+    <li><b>YANGI:</b> Shaxsiy texnika (28 ta jihoz) bazaga kiritiladi</li>
+    <li><b>YANGI:</b> Shaxsiy litsenziyalar (35 ta) bazaga kiritiladi</li>
+    <li><b>YANGI:</b> Umumiy texnika (8 ta jihoz) bazaga kiritiladi</li>
+  </ol>
+</div>
+
+<div class="card" style="margin-top:20px;border-left:4px solid var(--accent)">
+  <h3>Eski Excel hisobotni import qilish</h3>
+  <p style="font-size:13px;color:var(--text-light);margin-bottom:16px">
+    Istalgan Excel faylni yuklang — tizim ustunlarni avtomatik aniqlaydi va mos jadvalga import qiladi.
+  </p>
+  <form method="POST" enctype="multipart/form-data" action="/api/import-excel/analyze">
+    <div class="grid-2">
+      <div class="field"><label>Excel fayl (.xlsx)</label>
+        <input type="file" name="file" accept=".xlsx,.xls" required></div>
+      <div class="field"><label>Maqsad jadval</label>
+        <select name="target">
+          <option value="auto">Avtomatik aniqlash</option>
+          <option value="external_transactions">01-Tashqi aylanma</option>
+          <option value="internal_transactions">02-Ichki aylanma</option>
+          <option value="mixed_transactions">03-Mix (Pul beruvchi / Приход / Расход)</option>
+        </select></div>
+    </div>
+    <button type="submit" class="btn btn-accent" style="margin-top:8px">Tahlil qilish va import</button>
+  </form>
+</div>
+{% endblock %}

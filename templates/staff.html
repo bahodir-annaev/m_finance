@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">{{ t('staff_title') }}</h1>
+    <p class="page-subtitle">{{ t('staff_subtitle') }}</p>
+  </div>
+  <div class="page-actions no-print">
+    <a href="/api/export/xlsx?sheet=staff" class="btn btn-outline">Excel</a>
+    <button onclick="window.print()" class="btn btn-outline">Print</button>
+  </div>
+</div>
+<div class="card">
+  <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap" class="no-print">
+    <input type="text" id="sSearch" placeholder="Qidirish..." oninput="filterS()" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;width:200px;background:var(--surface)">
+    <select id="sFDept" onchange="filterS()" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:var(--surface)">
+      <option value="">{{ t('th_department') }} - {{ t('th_total') }}</option>
+      {% for d in depts %}<option value="{{ d }}">{{ d }}</option>{% endfor %}
+    </select>
+    <select id="sFType" onchange="filterS()" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:var(--surface)">
+      <option value="">{{ t('th_type') }} - {{ t('th_total') }}</option>
+      {% for tp in types %}<option value="{{ tp }}">{{ tp }}</option>{% endfor %}
+    </select>
+    <button onclick="document.getElementById('sSearch').value='';document.getElementById('sFDept').value='';document.getElementById('sFType').value='';filterS()" class="btn btn-outline btn-sm">Reset</button>
+  </div>
+  <table id="sTable">
+    <thead><tr>
+      <th onclick="sortT('sTable',0)" style="cursor:pointer">{{ t('th_name') }} <span class="sort-icon">&#x25B4;&#x25BE;</span></th>
+      <th onclick="sortT('sTable',1)" style="cursor:pointer">{{ t('th_position') }} <span class="sort-icon">&#x25B4;&#x25BE;</span></th>
+      <th onclick="sortT('sTable',2)" style="cursor:pointer">{{ t('th_department') }} <span class="sort-icon">&#x25B4;&#x25BE;</span></th>
+      <th>{{ t('th_type') }}</th>
+      <th onclick="sortT('sTable',4)" style="cursor:pointer">{{ t('th_salary') }} <span class="sort-icon">&#x25B4;&#x25BE;</span></th>
+      <th onclick="sortT('sTable',5)" style="cursor:pointer">{{ t('th_premium') }} <span class="sort-icon">&#x25B4;&#x25BE;</span></th>
+      <th>{{ t('th_tax') }}</th><th>{{ t('th_social') }}</th>
+      <th onclick="sortT('sTable',8)" style="cursor:pointer">{{ t('th_total') }} <span class="sort-icon">&#x25B4;&#x25BE;</span></th>
+    </tr></thead>
+    <tbody id="sBody">
+      {% for s in rows %}
+      <tr data-dept="{{ s.department }}" data-type="{{ s.staff_type }}"
+          style="{% if can_edit %}cursor:pointer;{% endif %}{% if not s.is_active %}opacity:0.5;{% endif %}"
+          {% if can_edit %}onclick="openStModal(this)"
+          data-id="{{ s.id }}" data-name="{{ s.name }}" data-full-name="{{ s.full_name }}"
+          data-role="{{ s.role }}" data-department="{{ s.department }}"
+          data-staff-type="{{ s.staff_type }}" data-is-active="{{ s.is_active }}"{% endif %}>
+        <td>{{ s.name }}</td><td>{{ s.role }}</td><td>{{ s.department }}</td>
+        <td><span class="badge {{ 'badge-prod' if s.staff_type == 'production' else 'badge-admin' }}">
+          {{ t('staff_production') if s.staff_type == 'production' else t('staff_admin') }}
+        </span></td>
+        <td class="num">{{ fmt(s.base) }}</td>
+        <td class="num">{{ fmt(s.prem) }}</td>
+        <td class="num">{{ fmt(s.tax_amt) }}</td>
+        <td class="num">{{ fmt(s.social_amt) }}</td>
+        <td class="num"><b>{{ fmt(s.total) }}</b></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <div id="sCount" style="margin-top:10px;font-size:12px;color:var(--text-light)"></div>
+</div>
+
+{% if can_edit %}{% include '_staff_modal.html' %}{% endif %}
+<script>
+var _sd = {};
+function sortT(tid, col) {
+  var tb = document.getElementById(tid).querySelector('tbody');
+  var rs = Array.from(tb.querySelectorAll('tr'));
+  if (!rs.length) return;
+  var d = _sd[tid+'_'+col] === 'asc' ? 'desc' : 'asc';
+  _sd[tid+'_'+col] = d;
+  rs.sort(function(a, b) {
+    var av = a.cells[col].textContent.trim(), bv = b.cells[col].textContent.trim();
+    var an = parseFloat(av.replace(/,/g, '')), bn = parseFloat(bv.replace(/,/g, ''));
+    if (!isNaN(an) && !isNaN(bn)) return d === 'asc' ? an - bn : bn - an;
+    return d === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+  });
+  rs.forEach(function(r) { tb.appendChild(r); });
+}
+function filterS() {
+  var q = document.getElementById('sSearch').value.toLowerCase();
+  var dept = document.getElementById('sFDept').value;
+  var tp = document.getElementById('sFType').value;
+  var rs = document.querySelectorAll('#sBody tr');
+  var n = 0;
+  rs.forEach(function(r) {
+    var ok = (!q || r.textContent.toLowerCase().includes(q))
+          && (!dept || r.dataset.dept === dept)
+          && (!tp || r.dataset.type === tp);
+    r.style.display = ok ? '' : 'none';
+    if (ok) n++;
+  });
+  document.getElementById('sCount').textContent = n + ' / ' + rs.length;
+}
+filterS();
+</script>
+{% endblock %}

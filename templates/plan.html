@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block content %}
+{% macro st_badge(st) %}
+  {%- if st == 'on' -%}<span class="badge" style="background:#F0FDF4;color:var(--done);border:1px solid #BBF7D0">{{ t('plan_status_on') }}</span>
+  {%- elif st == 'edge' -%}<span class="badge" style="background:#FFFBEB;color:#92400E;border:1px solid #FDE68A">{{ t('plan_status_edge') }}</span>
+  {%- elif st == 'off' -%}<span class="badge" style="background:#FEF2F2;color:#DC2626;border:1px solid #FECACA">{{ t('plan_status_off') }}</span>
+  {%- else -%}<span class="badge" style="background:var(--bg);color:var(--text-light);border:1px solid var(--border)">{{ t('plan_status_none') }}</span>
+  {%- endif -%}
+{% endmacro %}
+
+<div class="page-header">
+  <div>
+    <h1 class="page-title">{{ t('plan_title') }}</h1>
+    <p class="page-subtitle">{{ t('plan_subtitle') }}</p>
+  </div>
+  <div class="page-actions no-print">
+    <button onclick="window.print()" class="btn btn-outline">Print</button>
+  </div>
+</div>
+
+<div class="stats">
+  <div class="stat stat-green"><div class="label">{{ t('plan_status_on') }}</div>
+    <div class="value">{{ counts.on }}</div></div>
+  <div class="stat"><div class="label">{{ t('plan_status_edge') }}</div>
+    <div class="value" style="color:var(--amber)">{{ counts.edge }}</div></div>
+  <div class="stat stat-red"><div class="label">{{ t('plan_status_off') }}</div>
+    <div class="value">{{ counts.off }}</div></div>
+  <div class="stat"><div class="label">{{ t('plan_stat_plan_profit') }}</div>
+    <div class="value">{{ fmt(totals.plan_profit) }}</div><div class="sub">UZS</div></div>
+  <div class="stat {{ 'stat-green' if totals.fact_profit >= totals.plan_profit else 'stat-red' }}">
+    <div class="label">{{ t('plan_stat_fact_profit') }}</div>
+    <div class="value">{{ fmt(totals.fact_profit) }}</div><div class="sub">UZS</div></div>
+</div>
+
+<div class="card" style="overflow-x:auto">
+  <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap" class="no-print">
+    <input type="text" id="plSearch" placeholder="Qidirish..." oninput="filterPl()"
+           style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;width:200px;background:var(--surface)">
+    <select id="plFSt" onchange="filterPl()"
+            style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:var(--surface)">
+      <option value="">{{ t('plan_th_status') }} - {{ t('th_total') }}</option>
+      <option value="on">{{ t('plan_status_on') }}</option>
+      <option value="edge">{{ t('plan_status_edge') }}</option>
+      <option value="off">{{ t('plan_status_off') }}</option>
+      <option value="none">{{ t('plan_status_none') }}</option>
+    </select>
+    <button onclick="document.getElementById('plSearch').value='';document.getElementById('plFSt').value='';filterPl()"
+            class="btn btn-outline btn-sm">Reset</button>
+  </div>
+  {% if rows %}
+  <table id="plTable" style="font-size:12px">
+    <thead>
+      <tr>
+        <th rowspan="2" style="vertical-align:bottom">{{ t('plan_th_project') }}</th>
+        <th rowspan="2" style="vertical-align:bottom">{{ t('plan_th_milestones') }}</th>
+        <th rowspan="2" style="vertical-align:bottom">{{ t('plan_th_months') }}</th>
+        <th colspan="3" style="background:#005C4A;text-align:center">PLAN ({{ t('plan_to_date') }})</th>
+        <th colspan="3" style="background:#00382F;text-align:center">FAKT ({{ t('plan_to_date') }})</th>
+        <th rowspan="2" class="num" style="vertical-align:bottom">{{ t('plan_th_drift') }}</th>
+        <th rowspan="2" style="vertical-align:bottom">{{ t('plan_th_status') }}</th>
+      </tr>
+      <tr>
+        <th class="num" style="background:#005C4A">{{ t('plan_th_income') }}</th>
+        <th class="num" style="background:#005C4A">{{ t('plan_th_expense') }}</th>
+        <th class="num" style="background:#005C4A">{{ t('plan_th_profit') }}</th>
+        <th class="num">{{ t('plan_th_income') }}</th>
+        <th class="num">{{ t('plan_th_expense') }}</th>
+        <th class="num">{{ t('plan_th_profit') }}</th>
+      </tr>
+    </thead>
+    <tbody id="plBody">
+    {% for r in rows %}
+    <tr data-st="{{ r.status.headline }}">
+      <td><a href="/projects/{{ r.id }}" style="font-weight:600">{{ r.name }}</a></td>
+      <td style="white-space:nowrap">
+        {% if r.ms_total %}{{ r.ms_done }}/{{ r.ms_total }}
+          {% if r.any_late %}<span class="loss" title="{{ t('ms_badge_late') }}">⚠</span>{% endif %}
+        {% else %}—{% endif %}
+      </td>
+      <td style="white-space:nowrap">{{ r.months_planned }}{% if r.months_range %} <span style="font-size:10px;color:var(--text-light)">({{ r.months_range }})</span>{% endif %}</td>
+      <td class="num">{{ fmt(r.to_date.plan_income) }}</td>
+      <td class="num">{{ fmt(r.to_date.plan_expense) }}</td>
+      <td class="num">{{ fmt(r.to_date.plan_profit) }}</td>
+      <td class="num">{{ fmt(r.to_date.fact_income) }}</td>
+      <td class="num">{{ fmt(r.to_date.fact_expense) }}</td>
+      <td class="num {{ 'profit' if r.to_date.fact_profit >= 0 else 'loss' }}">{{ fmt(r.to_date.fact_profit) }}</td>
+      <td class="num {{ 'profit' if r.to_date.profit_drift is not none and r.to_date.profit_drift >= -5 else ('loss' if r.to_date.profit_drift is not none else '') }}">
+        {{ fmt(r.to_date.profit_drift, 1) ~ '%' if r.to_date.profit_drift is not none else '—' }}
+      </td>
+      <td>{{ st_badge(r.status.headline) }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <div id="plCount" style="margin-top:10px;font-size:12px;color:var(--text-light)"></div>
+  <p style="margin-top:10px;font-size:12px;color:var(--text-light)">{{ t('plan_to_date_note') }}</p>
+  {% else %}
+  <div class="empty-state" style="padding:40px">{{ t('plan_empty') }}</div>
+  {% endif %}
+</div>
+
+<script>
+function filterPl() {
+  var q = document.getElementById('plSearch').value.toLowerCase();
+  var st = document.getElementById('plFSt').value;
+  var rs = document.querySelectorAll('#plBody tr');
+  var n = 0;
+  rs.forEach(function (r) {
+    var ok = (!q || r.textContent.toLowerCase().includes(q)) && (!st || r.dataset.st === st);
+    r.style.display = ok ? '' : 'none';
+    if (ok) n++;
+  });
+  var el = document.getElementById('plCount');
+  if (el) el.textContent = n + ' / ' + rs.length;
+}
+if (document.getElementById('plBody')) filterPl();
+</script>
+{% endblock %}

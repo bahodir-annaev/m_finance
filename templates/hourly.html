@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">{{ t('hourly_title') }}</h1>
+    <p class="page-subtitle">{{ t('hourly_subtitle', eff_hrs, mult) }}</p>
+  </div>
+  <div class="page-actions no-print">
+    <a href="/api/export/xlsx?sheet=hourly" class="btn btn-outline">Excel</a>
+    <button onclick="window.print()" class="btn btn-outline">Print</button>
+  </div>
+</div>
+<div class="alert alert-info">
+  <b>{{ t('hourly_formula_info') }}</b> {{ t('hourly_formula_desc') }}
+</div>
+<div class="card">
+  <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap" class="no-print">
+    <input type="text" id="hSearch" placeholder="Qidirish..." oninput="filterH()" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;width:200px;background:var(--surface)">
+    <select id="hFDept" onchange="filterH()" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:var(--surface)">
+      <option value="">{{ t('th_department') }} - {{ t('th_total') }}</option>
+      {% for d in depts %}<option value="{{ d }}">{{ d }}</option>{% endfor %}
+    </select>
+    <button onclick="document.getElementById('hSearch').value='';document.getElementById('hFDept').value='';filterH()" class="btn btn-outline btn-sm">Reset</button>
+  </div>
+  <table id="hTable">
+    <thead><tr>
+      <th onclick="sortT('hTable',0)" style="cursor:pointer">{{ t('th_name') }} <span class="sort-icon">&#x25B4;&#x25BE;</span></th>
+      <th>{{ t('th_position') }}</th>
+      <th onclick="sortT('hTable',2)" style="cursor:pointer">{{ t('th_department') }} <span class="sort-icon">&#x25B4;&#x25BE;</span></th>
+      <th>{{ t('hourly_salary_prem') }}</th><th>{{ t('hourly_tax_social') }}</th>
+      <th>{{ t('hourly_admin_prop') }}</th><th>{{ t('hourly_tech_lic') }}</th>
+      <th>{{ t('hourly_gen_eq') }}</th><th>{{ t('hourly_overhead_prop') }}</th>
+      <th onclick="sortT('hTable',9)" style="cursor:pointer">{{ t('hourly_total_monthly') }} <span class="sort-icon">&#x25B4;&#x25BE;</span></th>
+      <th onclick="sortT('hTable',10)" style="cursor:pointer">{{ t('th_cost_rate') }} <span class="sort-icon">&#x25B4;&#x25BE;</span></th>
+      <th onclick="sortT('hTable',11)" style="cursor:pointer">{{ t('th_billing_rate') }} <span class="sort-icon">&#x25B4;&#x25BE;</span></th>
+      <th>USD</th>
+    </tr></thead>
+    <tbody id="hBody">
+      {% for r in rows %}
+      <tr data-dept="{{ r.department }}">
+        <td>{{ r.name }}</td><td>{{ r.role }}</td><td>{{ r.department }}</td>
+        <td class="num">{{ fmt(r.salary_prem) }}</td>
+        <td class="num">{{ fmt(r.tax_social) }}</td>
+        <td class="num">{{ fmt(r.admin_share) }}</td>
+        <td class="num">{{ fmt(r.tech_lic) }}</td>
+        <td class="num">{{ fmt(r.general_eq) }}</td>
+        <td class="num">{{ fmt(r.overhead_share) }}</td>
+        <td class="num"><b>{{ fmt(r.total_monthly) }}</b></td>
+        <td class="num" style="color:var(--blue);font-weight:700">{{ fmt(r.cost_rate) }}</td>
+        <td class="num" style="color:var(--done);font-weight:700;font-size:15px">{{ fmt(r.billing_rate) }}</td>
+        <td class="num">${{ fmt(r.billing_usd, 2) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <div id="hCount" style="margin-top:10px;font-size:12px;color:var(--text-light)"></div>
+</div>
+<script>
+var _sd = {};
+function sortT(tid, col) {
+  var tb = document.getElementById(tid).querySelector('tbody');
+  var rs = Array.from(tb.querySelectorAll('tr'));
+  if (!rs.length) return;
+  var d = _sd[tid+'_'+col] === 'asc' ? 'desc' : 'asc';
+  _sd[tid+'_'+col] = d;
+  rs.sort(function(a, b) {
+    var av = a.cells[col].textContent.trim(), bv = b.cells[col].textContent.trim();
+    var an = parseFloat(av.replace(/[,$]/g, '')), bn = parseFloat(bv.replace(/[,$]/g, ''));
+    if (!isNaN(an) && !isNaN(bn)) return d === 'asc' ? an - bn : bn - an;
+    return d === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+  });
+  rs.forEach(function(r) { tb.appendChild(r); });
+}
+function filterH() {
+  var q = document.getElementById('hSearch').value.toLowerCase();
+  var dept = document.getElementById('hFDept').value;
+  var rs = document.querySelectorAll('#hBody tr');
+  var n = 0;
+  rs.forEach(function(r) {
+    var ok = (!q || r.textContent.toLowerCase().includes(q)) && (!dept || r.dataset.dept === dept);
+    r.style.display = ok ? '' : 'none';
+    if (ok) n++;
+  });
+  document.getElementById('hCount').textContent = n + ' / ' + rs.length;
+}
+filterH();
+</script>
+{% endblock %}

@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MIZAN Finance v4.0</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="sidebar">
+  <h1>{{ t('app_name') }}<span>{{ t('app_version') }}</span></h1>
+  <div style="padding:6px 20px 14px;display:flex;gap:4px;">
+    <a href="/set-lang/uz" style="padding:4px 12px;border-radius:14px;font-size:11px;text-decoration:none;font-weight:600;{% if lang=='uz' %}background:var(--accent);color:var(--primary){% else %}color:rgba(255,255,255,0.4){% endif %}">UZ</a>
+    <a href="/set-lang/en" style="padding:4px 12px;border-radius:14px;font-size:11px;text-decoration:none;font-weight:600;{% if lang=='en' %}background:var(--accent);color:var(--primary){% else %}color:rgba(255,255,255,0.4){% endif %}">EN</a>
+    <a href="/set-lang/ru" style="padding:4px 12px;border-radius:14px;font-size:11px;text-decoration:none;font-weight:600;{% if lang=='ru' %}background:var(--accent);color:var(--primary){% else %}color:rgba(255,255,255,0.4){% endif %}">RU</a>
+  </div>
+  {% if current_user.role in ('manager', 'admin') %}
+  <div class="nav-group">{{ t('nav_management') }}</div>
+  <div class="nav">
+    <a href="/accounting" class="{% if page=='accounting' %}active{% endif %}"><span class="num" style="color:#B8EBAC">+</span>{{ t('nav_accounting') }}</a>
+    <!-- <a href="/ai" class="{% if page=='ai' %}active{% endif %}"><span class="num">🤖</span>{{ t('nav_ai') }}</a> -->
+  </div>
+  {% endif %}
+  <div class="nav-group">{{ t('nav_data') }}</div>
+  <div class="nav">
+    <a href="/" class="{% if page=='dashboard' %}active{% endif %}"><span class="num">09</span>{{ t('nav_dashboard') }}</a>
+    <a href="/staff" class="{% if page=='staff' %}active{% endif %}"><span class="num">03</span>{{ t('nav_staff') }}</a>
+    <a href="/hourly" class="{% if page=='hourly' %}active{% endif %}"><span class="num">07</span>{{ t('nav_hourly') }}</a>
+    <a href="/equipment" class="{% if page=='equipment' %}active{% endif %}"><span class="num">06</span>{{ t('nav_equipment') }}</a>
+    <a href="/projects" class="{% if page=='projects' %}active{% endif %}"><span class="num">04</span>{{ t('nav_projects') }}</a>
+    <a href="/budget" class="{% if page=='budget' %}active{% endif %}"><span class="num">08</span>{{ t('nav_budget') }}</a>
+    <a href="/plan" class="{% if page=='plan' %}active{% endif %}"><span class="num">11</span>{{ t('nav_plan') }}</a>
+    <a href="/kpi" class="{% if page=='kpi' %}active{% endif %}"><span class="num">10</span>{{ t('nav_kpi') }}</a>
+  </div>
+  <div class="nav-group">{{ t('nav_finance') }}</div>
+  <div class="nav">
+    <a href="/pricing" class="{% if page=='pricing' %}active{% endif %}"><span class="num">$$</span>{{ t('nav_pricing') }}</a>
+    <a href="/cashflow" class="{% if page=='cashflow' %}active{% endif %}"><span class="num">CF</span>{{ t('nav_cashflow') }}</a>
+    <a href="/loans" class="{% if page=='loans' %}active{% endif %}"><span class="num">QZ</span>Oldi-Berdi</a>
+    <a href="/dividends" class="{% if page=='dividends' %}active{% endif %}"><span class="num">💰</span>{{ t('nav_dividends') }}</a>
+    <a href="/external" class="{% if page=='external' %}active{% endif %}"><span class="num">01</span>{{ t('nav_external') }}</a>
+    <a href="/internal" class="{% if page=='internal' %}active{% endif %}"><span class="num">02</span>{{ t('nav_internal') }}</a>
+  </div>
+  <div class="nav-group">{{ t('nav_settings_group') }}</div>
+  <div class="nav">
+    {% if current_user.role == 'admin' %}
+    <a href="/settings" class="{% if page=='settings' %}active{% endif %}"><span class="num">05</span>{{ t('nav_settings') }}</a>
+    {% endif %}
+    {% if current_user.role in ('manager', 'admin') %}
+    <a href="/periods" class="{% if page=='periods' %}active{% endif %}"><span class="num">📅</span>Davrlar</a>
+    {% endif %}
+    {% if current_user.role == 'admin' %}
+    <a href="/reference/categories" class="{% if page=='categories' %}active{% endif %}"><span class="num">🗂</span>Kategoriyalar</a>
+    <a href="/reference/counterparties" class="{% if page=='counterparties' %}active{% endif %}"><span class="num">🏢</span>Kontragentlar</a>
+    <a href="/reference/lookup-tables" class="{% if page=='lookup_tables' %}active{% endif %}"><span class="num">🏷</span>Qidiruv Jadvallari</a>
+    <a href="/reference/reconcile" class="{% if page=='reconcile' %}active{% endif %}"><span class="num">🔗</span>Moslashtirish</a>
+    {% endif %}
+    {% if current_user.role == 'admin' %}
+    <a href="/import" class="{% if page=='import' %}active{% endif %}">{{ t('nav_import') }}</a>
+    {% endif %}
+    {% if current_user.role in ('manager', 'admin') %}
+    <a href="/export" class="{% if page=='export' %}active{% endif %}">{{ t('nav_export') }}</a>
+    {% endif %}
+    {% if current_user.role == 'admin' %}
+    <a href="/admin/users" class="{% if page=='admin_users' %}active{% endif %}"><span class="num">👤</span>Foydalanuvchilar</a>
+    {% endif %}
+  </div>
+  <div style="padding:12px 16px 16px;border-top:1px solid rgba(255,255,255,0.1);margin-top:8px">
+    <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-bottom:4px">
+      <span style="padding:2px 8px;border-radius:8px;font-weight:600;font-size:10px;
+        {% if current_user.role=='admin' %}background:rgba(76,175,80,0.25);color:#81c784
+        {% elif current_user.role=='manager' %}background:rgba(33,150,243,0.25);color:#90caf9
+        {% else %}background:rgba(255,255,255,0.1);color:rgba(255,255,255,0.5){% endif %}">
+        {{ current_user.role }}
+      </span>
+    </div>
+    <div style="font-size:13px;color:rgba(255,255,255,0.85);font-weight:600;margin-bottom:8px">{{ current_user.username }}</div>
+    <a href="/logout" style="display:block;text-align:center;padding:6px 0;border-radius:8px;font-size:12px;font-weight:600;color:rgba(255,255,255,0.6);border:1px solid rgba(255,255,255,0.15);text-decoration:none;transition:background .15s" onmouseover="this.style.background='rgba(255,255,255,0.08)'" onmouseout="this.style.background='transparent'">Chiqish</a>
+  </div>
+</div>
+<div class="main">
+  {% block content %}{% endblock %}
+</div>
+{% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Importni moslashtirish</h1>
+    <p class="page-subtitle">Excel'dan kelgan loyiha va kontragent nomlarini mavjud ro'yxatlarga bog'lash</p>
+  </div>
+</div>
+
+{% if msg %}{{ msg|safe }}{% endif %}
+
+<div class="stats">
+  <div class="stat">
+    <div class="label">Moslashtirilmagan loyihalar</div>
+    <div class="value" style="color:var(--amber)">{{ project_unresolved|length }}</div>
+    <div class="sub">noyob nom</div>
+  </div>
+  <div class="stat">
+    <div class="label">Moslashtirilmagan kontragentlar</div>
+    <div class="value" style="color:var(--amber)">{{ cp_unresolved|length }}</div>
+    <div class="sub">noyob nom</div>
+  </div>
+</div>
+
+{# ── Projects ── #}
+<div class="card">
+  <h3>Loyihalar — {{ project_unresolved|length }} ta hal qilinmagan nom</h3>
+  {% if project_unresolved %}
+  <table>
+    <thead><tr>
+      <th>Excel'dagi nom</th>
+      <th style="text-align:center">Tranzaksiyalar</th>
+      <th>Mavjud loyihaga bog'lash</th>
+      <th>Yoki yangi loyiha</th>
+      <th></th>
+    </tr></thead>
+    <tbody>
+    {% for u in project_unresolved %}
+      <tr>
+        <td><b>{{ u.raw_name }}</b></td>
+        <td style="text-align:center">{{ u.cnt }}</td>
+        <td>
+          <form method="post" style="display:flex;gap:6px;align-items:center">
+            <input type="hidden" name="entity_type" value="project">
+            <input type="hidden" name="raw_name" value="{{ u.raw_name }}">
+            <input type="hidden" name="action" value="link">
+            <select name="target_id" style="padding:6px;font-size:12px" required>
+              <option value="">— tanlang —</option>
+              {% for p in projects %}
+              <option value="{{ p.id }}">{{ p.name }}</option>
+              {% endfor %}
+            </select>
+            <button type="submit" class="btn btn-sm btn-primary">Bog'lash</button>
+          </form>
+        </td>
+        <td>
+          <form method="post" style="display:flex;gap:6px;align-items:center">
+            <input type="hidden" name="entity_type" value="project">
+            <input type="hidden" name="raw_name" value="{{ u.raw_name }}">
+            <input type="hidden" name="action" value="create_new">
+            <input type="text" name="new_name" value="{{ u.raw_name }}" style="padding:6px;font-size:12px;width:160px">
+            <button type="submit" class="btn btn-sm btn-outline">+ Yangi</button>
+          </form>
+        </td>
+        <td>
+          <form method="post" onsubmit="return confirm('Bu nomni e\'tiborsiz qoldirishni tasdiqlaysizmi?')">
+            <input type="hidden" name="entity_type" value="project">
+            <input type="hidden" name="raw_name" value="{{ u.raw_name }}">
+            <input type="hidden" name="action" value="ignore">
+            <button type="submit" class="btn btn-sm btn-danger">✕</button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p style="font-size:13px;color:var(--text-light)">Hammasi moslashtirilgan.</p>
+  {% endif %}
+</div>
+
+{# ── Counterparties ── #}
+<div class="card">
+  <h3>Kontragentlar — {{ cp_unresolved|length }} ta hal qilinmagan nom</h3>
+  {% if cp_unresolved %}
+  <table>
+    <thead><tr>
+      <th>Excel'dagi nom</th>
+      <th style="text-align:center">Tranzaksiyalar</th>
+      <th>Mavjud kontragentga bog'lash</th>
+      <th>Yoki yangi kontragent</th>
+      <th></th>
+    </tr></thead>
+    <tbody>
+    {% for u in cp_unresolved %}
+      <tr>
+        <td><b>{{ u.raw_name }}</b></td>
+        <td style="text-align:center">{{ u.cnt }}</td>
+        <td>
+          <form method="post" style="display:flex;gap:6px;align-items:center">
+            <input type="hidden" name="entity_type" value="counterparty">
+            <input type="hidden" name="raw_name" value="{{ u.raw_name }}">
+            <input type="hidden" name="action" value="link">
+            <select name="target_id" style="padding:6px;font-size:12px" required>
+              <option value="">— tanlang —</option>
+              {% for c in counterparties %}
+              <option value="{{ c.id }}">{{ c.name }}</option>
+              {% endfor %}
+            </select>
+            <button type="submit" class="btn btn-sm btn-primary">Bog'lash</button>
+          </form>
+        </td>
+        <td>
+          <form method="post" style="display:flex;gap:6px;align-items:center">
+            <input type="hidden" name="entity_type" value="counterparty">
+            <input type="hidden" name="raw_name" value="{{ u.raw_name }}">
+            <input type="hidden" name="action" value="create_new">
+            <input type="text" name="new_name" value="{{ u.raw_name }}" style="padding:6px;font-size:12px;width:160px">
+            <button type="submit" class="btn btn-sm btn-outline">+ Yangi</button>
+          </form>
+        </td>
+        <td>
+          <form method="post" onsubmit="return confirm('Bu nomni e\'tiborsiz qoldirishni tasdiqlaysizmi?')">
+            <input type="hidden" name="entity_type" value="counterparty">
+            <input type="hidden" name="raw_name" value="{{ u.raw_name }}">
+            <input type="hidden" name="action" value="ignore">
+            <button type="submit" class="btn btn-sm btn-danger">✕</button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p style="font-size:13px;color:var(--text-light)">Hammasi moslashtirilgan.</p>
+  {% endif %}
+</div>
+
+{% endblock %}

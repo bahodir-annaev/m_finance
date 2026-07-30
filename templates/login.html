@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MIZAN Finance — Kirish</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  body { display:flex; align-items:center; justify-content:center; min-height:100vh; background:var(--primary,#00382F); margin:0; }
+  .login-box { background:#fff; border-radius:12px; padding:48px 40px; width:100%; max-width:380px; box-shadow:0 8px 32px rgba(0,0,0,0.18); }
+  .login-box h2 { color:var(--primary,#00382F); font-size:22px; margin:0 0 6px; font-weight:700; }
+  .login-box .sub { color:#888; font-size:13px; margin-bottom:28px; }
+  .login-box label { display:block; font-size:12px; font-weight:600; color:#444; margin-bottom:4px; }
+  .login-box input[type=text], .login-box input[type=password] {
+    width:100%; box-sizing:border-box; padding:10px 14px; border:1.5px solid #ddd;
+    border-radius:8px; font-size:14px; margin-bottom:16px; outline:none; transition:border .15s;
+  }
+  .login-box input:focus { border-color:var(--primary,#00382F); }
+  .login-box .remember { display:flex; align-items:center; gap:8px; font-size:13px; color:#555; margin-bottom:20px; }
+  .login-box .remember input { width:auto; margin:0; }
+  .login-box button { width:100%; padding:12px; background:var(--primary,#00382F); color:#fff;
+    border:none; border-radius:8px; font-size:15px; font-weight:600; cursor:pointer; transition:opacity .15s; }
+  .login-box button:hover { opacity:.88; }
+  .login-box .error { background:#fff0f0; border:1px solid #ffcccc; border-radius:6px;
+    padding:10px 14px; color:#c00; font-size:13px; margin-bottom:16px; }
+</style>
+</head>
+<body>
+<div class="login-box">
+  <h2>MIZAN Finance</h2>
+  <div class="sub">v4.0 — Moliyaviy boshqaruv tizimi</div>
+  {% if error %}
+  <div class="error">{{ error }}</div>
+  {% endif %}
+  <form method="post">
+    <label for="username">Foydalanuvchi nomi</label>
+    <input type="text" id="username" name="username" autocomplete="username" autofocus required>
+    <label for="password">Parol</label>
+    <input type="password" id="password" name="password" autocomplete="current-password" required>
+    <div class="remember">
+      <input type="checkbox" id="remember" name="remember" value="1">
+      <label for="remember" style="margin:0;font-weight:400">Eslab qolish</label>
+    </div>
+    <button type="submit">Kirish</button>
+  </form>
+</div>
+</body>
+</html>

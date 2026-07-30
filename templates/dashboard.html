@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">{{ t('dash_title') }}</h1>
+    <p class="page-subtitle">{{ t('dash_subtitle') }}</p>
+  </div>
+  <div class="page-actions no-print">
+    <a href="/api/export/xlsx" class="btn btn-outline">Excel</a>
+    <button onclick="window.print()" class="btn btn-outline">Print</button>
+  </div>
+</div>
+
+<div class="stats">
+  <div class="stat"><div class="label">{{ t('dash_total_projects') }}</div><div class="value">{{ data.total_projects }}</div></div>
+  <div class="stat"><div class="label">{{ t('dash_total_hours') }}</div><div class="value">{{ fmt(data.total_hours, 1) }}</div></div>
+  <div class="stat"><div class="label">{{ t('dash_staff_count') }}</div><div class="value">{{ data.production_staff }} / {{ data.admin_staff }}</div></div>
+  <div class="stat">
+    <div class="label">{{ t('dash_utilization') }}</div>
+    <div class="value">{{ fmt(data.utilization_pct, 1) }}%</div>
+    <div class="sub">{{ t('dash_available', fmt(data.available_hours, 0)) }}</div>
+  </div>
+  <div class="stat stat-blue">
+    <div class="label">{{ t('dash_cost_rate') }}</div>
+    <div class="value">{{ fmt(data.avg_cost_rate) }}</div>
+    <div class="sub">${{ fmt(data.avg_hourly_usd, 2) }} USD</div>
+  </div>
+  <div class="stat stat-green">
+    <div class="label">{{ t('dash_billing_rate') }}</div>
+    <div class="value">{{ fmt(data.avg_billing_rate) }}</div>
+    <div class="sub">${{ fmt(data.avg_billing_usd, 2) }} USD</div>
+  </div>
+  <div class="stat">
+    <div class="label">{{ t('dash_total_cost') }}</div>
+    <div class="value">{{ fmt(data.total_mizan_cost) }}</div>
+    <div class="sub">${{ fmt(data.total_mizan_usd, 2) }}</div>
+  </div>
+  <div class="stat {{ profit_class }}">
+    <div class="label">{{ t('dash_profit_loss') }}</div>
+    <div class="value">{{ fmt(data.total_profit) }}</div>
+    <div class="sub">UZS</div>
+  </div>
+</div>
+
+<h3 style="margin-top:24px;">{{ t('dash_cfo_title') }}</h3>
+<div class="stats">
+  <div class="stat {{ burn_class }}">
+    <div class="label">{{ t('dash_burn_rate') }}</div>
+    <div class="value">{{ fmt(data.burn_rate) }}</div>
+    <div class="sub">{{ t('dash_burn_unit') }}</div>
+  </div>
+  <div class="stat {{ burn_class }}">
+    <div class="label">{{ t('dash_runway') }}</div>
+    <div class="value">{{ fmt(data.runway_months, 1) }}</div>
+    <div class="sub">{{ t('dash_runway_unit') }}</div>
+  </div>
+  <div class="stat {{ cap_class }}">
+    <div class="label">{{ t('dash_capacity') }}</div>
+    <div class="value">{{ fmt(data.capacity_pct, 1) }}%</div>
+    <div class="sub">{{ t('dash_capacity_free', fmt(data.capacity_available, 0)) }}</div>
+  </div>
+  <div class="stat {{ ar_class }}">
+    <div class="label">{{ t('dash_ar') }}</div>
+    <div class="value">{{ fmt(data.ar_total) }}</div>
+    <div class="sub">{{ t('dash_ar_overdue', fmt(data.ar_overdue)) }}</div>
+  </div>
+  <div class="stat {{ oc_class }}">
+    <div class="label">{{ t('dash_on_course') }}</div>
+    <div class="value">{{ oc.on }} / {{ oc.tracked }}</div>
+    <div class="sub">{{ t('dash_on_course_sub', oc.off, oc.late_projects) }}</div>
+  </div>
+  <div class="stat {{ fx_class }}">
+    <div class="label">{{ t('dash_fx') }}</div>
+    <div class="value">{{ fmt(data.total_fx_gain_loss) }}</div>
+    <div class="sub">UZS</div>
+  </div>
+  <div class="stat">
+    <div class="label">{{ t('dash_breakeven') }}</div>
+    <div class="value">{{ fmt(data.breakeven_revenue) }}</div>
+    <div class="sub">{{ t('dash_breakeven_unit') }}</div>
+  </div>
+  <div class="stat stat-green">
+    <div class="label">{{ t('dash_rev_per_employee') }}</div>
+    <div class="value">{{ fmt(data.revenue_per_employee) }}</div>
+    <div class="sub">UZS</div>
+  </div>
+  <div class="stat">
+    <div class="label">{{ t('dash_profit_per_hour') }}</div>
+    <div class="value">{{ fmt(data.profit_per_hour) }}</div>
+    <div class="sub">{{ t('dash_profit_per_hour_unit') }}</div>
+  </div>
+  <div class="stat {{ 'stat-red' if loan_data.taken_remaining > 0 else '' }}">
+    <div class="label">Qarz qoldig'i</div>
+    <div class="value">{{ fmt(loan_data.taken_remaining - loan_data.given_remaining) }}</div>
+    <div class="sub">Olgan: {{ fmt(loan_data.taken_remaining) }} | Bergan: {{ fmt(loan_data.given_remaining) }}</div>
+  </div>
+</div>
+
+<div class="card">
+  <h3>{{ t('dash_top_projects') }}</h3>
+  <table>
+    <tr>
+      <th>{{ t('th_num') }}</th><th>{{ t('th_project') }}</th><th>{{ t('th_hours') }}</th>
+      <th>{{ t('th_mizan_cost') }}</th><th>{{ t('th_billing_value') }}</th>
+      <th>{{ t('th_fx') }}</th><th>{{ t('th_margin') }}</th><th>{{ t('th_staff_count') }}</th>
+    </tr>
+    {% for p in data.top_projects[:10] %}
+    <tr>
+      <td>{{ loop.index }}</td>
+      <td>{{ p.project.name }}</td>
+      <td class="num">{{ fmt(p.total_hours, 1) }}</td>
+      <td class="num">{{ fmt(p.mizan_cost) }}</td>
+      <td class="num">{{ fmt(p.mizan_billing) }}</td>
+      <td class="num" style="color:{{ 'green' if p.fx_gain_loss >= 0 else 'red' }}">{{ fmt(p.fx_gain_loss) }}</td>
+      <td class="num">{{ fmt(p.margin, 1) }}%</td>
+      <td class="num">{{ p.staff_breakdown|length }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+
+<div class="card">
+  <h3>{{ t('dash_formula_title') }}</h3>
+  <div class="chain">
+    <span class="chain-item">05-Settings</span><span class="chain-arrow">&rarr;</span>
+    <span class="chain-item">03-Maosh</span><span class="chain-arrow">&rarr;</span>
+    <span class="chain-item">06-Texnika+Litsenziya</span><span class="chain-arrow">&rarr;</span>
+    <span class="chain-item"><b>07-Soat narxi</b></span><span class="chain-arrow">&rarr;</span>
+    <span class="chain-item">04-Proekt vaqt</span><span class="chain-arrow">&rarr;</span>
+    <span class="chain-item">08-Byudjet</span><span class="chain-arrow">&rarr;</span>
+    <span class="chain-item">09-Dashboard</span><span class="chain-arrow">&rarr;</span>
+    <span class="chain-item" style="border-color:var(--green);color:var(--green)">CFO Panel</span>
+  </div>
+  <div class="formula-box">
+Cost Rate = Jami oylik xarajat / Available Hours ({{ fmt(data.available_hours, 0) }} soat/oy)<br>
+Billing Rate = Cost Rate &times; Markup (2.0x)<br>
+Available = (365 - 104 dam olish - 14 bayram - 20 ta'til) / 12 &times; 8 = {{ fmt(data.available_hours, 0) }} soat/oy<br>
+Risk faqat Pricing da: Price = Cost &times; Risk (tannarxga qo'shilmaydi)<br>
+Burn Rate = faqat naqd doimiy xarajatlar (maosh + soliqlar + overhead); amortizatsiya kirmaydi (non-cash)
+  </div>
+</div>
+{% endblock %}

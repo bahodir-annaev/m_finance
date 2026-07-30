@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">{{ t('div_title') }}</h1>
+    <p class="page-subtitle">{{ t('div_subtitle') }}</p>
+  </div>
+  <div class="page-actions no-print">
+    <button onclick="window.print()" class="btn btn-outline">Print</button>
+  </div>
+</div>
+
+{{ msg|safe }}
+
+<div class="stats">
+  <div class="stat stat-red">
+    <div class="label">{{ t('div_total_paid') }}</div>
+    <div class="value">{{ fmt(summary.total_paid) }}</div>
+    <div class="sub">UZS</div>
+  </div>
+  <div class="stat">
+    <div class="label">{{ t('div_total_declared') }}</div>
+    <div class="value">{{ fmt(summary.total_amount) }}</div>
+    <div class="sub">UZS</div>
+  </div>
+  <div class="stat {{ 'stat-amber' if summary.total_pending > 0 else '' }}">
+    <div class="label">{{ t('th_remainder') }}</div>
+    <div class="value">{{ fmt(summary.total_pending) }}</div>
+    <div class="sub">UZS</div>
+  </div>
+  <div class="stat">
+    <div class="label">{{ t('th_total') }}</div>
+    <div class="value">{{ summary.count }}</div>
+    <div class="sub">{{ t('div_records') }}</div>
+  </div>
+</div>
+
+{% if can_edit %}
+<div class="card">
+  <h3>{{ t('div_add_title') }}</h3>
+  <form method="post" action="/dividends">
+    <div class="grid-2">
+      <div class="field">
+        <label>{{ t('th_date') }}</label>
+        <input type="date" name="date" value="{{ today_str }}" required>
+      </div>
+      <div class="field">
+        <label>{{ t('div_founder') }}</label>
+        <input name="founder" placeholder="{{ t('div_founder_ph') }}" required>
+      </div>
+      <div class="field">
+        <label>{{ t('th_amount') }}</label>
+        <input type="number" step="any" name="amount" required>
+      </div>
+      <div class="field">
+        <label>{{ t('th_paid') }}</label>
+        <input type="number" step="any" name="paid" placeholder="{{ t('div_paid_ph') }}">
+      </div>
+      <div class="field">
+        <label>{{ t('acc_currency') }}</label>
+        <select name="currency">
+          <option value="UZS">UZS</option>
+          <option value="USD">USD</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>{{ t('tx_payment_type') }}</label>
+        <select name="payment_type">
+          {% for pt in payment_types %}<option value="{{ pt.code }}">{{ pt.label_uz }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label>{{ t('acc_responsible') }}</label>
+        <input name="responsible">
+      </div>
+      <div class="field">
+        <label>{{ t('tx_doc_id') }}</label>
+        <input name="doc_id">
+      </div>
+    </div>
+    <div class="field">
+      <label>{{ t('th_description') }}</label>
+      <input name="description">
+    </div>
+    <div class="field">
+      <label>{{ t('th_notes') }}</label>
+      <input name="notes">
+    </div>
+    <button type="submit" class="btn btn-primary">{{ t('div_add_btn') }}</button>
+  </form>
+</div>
+{% endif %}
+
+<div class="card">
+  <table>
+    <thead><tr>
+      <th>{{ t('th_date') }}</th>
+      <th>{{ t('div_founder') }}</th>
+      <th>{{ t('th_description') }}</th>
+      <th class="num">{{ t('th_amount') }}</th>
+      <th class="num">{{ t('th_paid') }}</th>
+      <th>{{ t('acc_currency') }}</th>
+      <th>{{ t('tx_payment_type') }}</th>
+      <th>{{ t('th_status') }}</th>
+      {% if can_edit %}<th class="no-print"></th>{% endif %}
+    </tr></thead>
+    <tbody>
+      {% if dividends %}
+        {% for d in dividends %}
+        <tr>
+          <td>{{ d.date }}</td>
+          <td><b>{{ d.founder or '-' }}</b>{% if d.responsible %}<br><span style="font-size:11px;color:var(--text-light)">{{ d.responsible }}</span>{% endif %}</td>
+          <td>{{ d.description or '-' }}{% if d.notes %}<br><span style="font-size:11px;color:var(--text-light)">{{ d.notes }}</span>{% endif %}</td>
+          <td class="num">{{ fmt(d.amount) }}</td>
+          <td class="num" style="color:var(--done)">{{ fmt(d.paid) }}</td>
+          <td>{{ d.currency }}</td>
+          <td>{{ d.payment_type }}</td>
+          <td style="{{ 'color:var(--done)' if d.status == 'paid' else 'color:var(--amber)' }};font-weight:600">{{ t('status_' + d.status) if d.status in ('paid','pending','partial') else d.status }}</td>
+          {% if can_edit %}
+          <td class="no-print">
+            <button type="button" class="btn btn-danger btn-sm" onclick="deleteDividend({{ d.id }})">{{ t('btn_delete') }}</button>
+          </td>
+          {% endif %}
+        </tr>
+        {% endfor %}
+      {% else %}
+        <tr><td colspan="{{ 9 if can_edit else 8 }}" class="empty-state" style="padding:40px">{{ t('div_empty') }}</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+</div>
+
+{% if can_edit %}
+<script>
+function deleteDividend(id) {
+  if (!confirm({{ t('div_del_confirm')|tojson }})) return;
+  fetch('/api/delete/dividends/' + id, { method: 'POST' })
+    .then(function (r) { return r.json(); })
+    .then(function (res) {
+      if (res.status === 'ok') { location.reload(); }
+      else { alert(res.error || 'Error'); }
+    })
+    .catch(function () { alert('Error'); });
+}
+</script>
+{% endif %}
+{% endblock %}

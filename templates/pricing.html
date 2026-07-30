@@ -1,0 +1,189 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="page-title">Pricing Engine</h1>
+<p class="page-subtitle">Yangi proekt uchun narx hisoblash — cost rate, billing rate, risk scoring</p>
+
+{% if gen_msg %}
+<div class="alert alert-{{ gen_msg[0] }}">{{ gen_msg[1] }}</div>
+{% endif %}
+
+{% if result %}
+<div class="card" style="border-left:4px solid var(--green)">
+  <h3>Narx hisoblash natijasi (Risk koeff: {{ result.risk_coeff }})</h3>
+  <div class="grid-3" style="margin:20px 0">
+    <div class="price-card">
+      <div class="price-label">MINIMUM shartnoma</div>
+      <div class="price-value" style="color:var(--red)">{{ fmt(result.minimum_contract) }}</div>
+      <div class="price-usd">${{ fmt(result.minimum_usd, 0) }} USD</div>
+    </div>
+    <div class="price-card recommended">
+      <div class="price-label">TARGET ({{ (result.target_margin * 100)|round|int }}% margin)</div>
+      <div class="price-value" style="color:var(--green)">{{ fmt(result.target_contract) }}</div>
+      <div class="price-usd">${{ fmt(result.target_usd, 0) }} USD</div>
+    </div>
+    <div class="price-card">
+      <div class="price-label">PREMIUM (+20%)</div>
+      <div class="price-value">{{ fmt(result.premium_contract) }}</div>
+      <div class="price-usd">${{ fmt(result.premium_usd, 0) }} USD</div>
+    </div>
+  </div>
+  <table>
+    <tr><th>Xodim</th><th>Lavozim</th><th>Soatlar</th><th>Cost Rate</th><th>Billing Rate</th><th>Billing Value</th></tr>
+    {% for d in result.staff_details %}
+    <tr>
+      <td>{{ d.name }}</td><td>{{ d.role }}</td>
+      <td class="num">{{ fmt(d.hours, 0) }}</td>
+      <td class="num">{{ fmt(d.cost_rate) }}</td>
+      <td class="num">{{ fmt(d.billing_rate) }}</td>
+      <td class="num">{{ fmt(d.billing) }}</td>
+    </tr>
+    {% endfor %}
+    <tr style="font-weight:700;background:#EDE8E0">
+      <td colspan="2">JAMI</td>
+      <td class="num">{{ fmt(result.total_hours) }}</td>
+      <td></td><td></td>
+      <td class="num">{{ fmt(result.total_billing) }}</td>
+    </tr>
+  </table>
+  <div style="margin-top:16px;font-size:13px;color:var(--text-light)">
+    MIZAN cost: {{ fmt(result.mizan_cost) }} | Outsourcing: {{ fmt(result.outsourcing) }} | Material: {{ fmt(result.material) }}
+  </div>
+</div>
+{% endif %}
+
+<div class="card">
+  <h3>Narx hisoblash</h3>
+  <form method="POST">
+    <div class="grid-2">
+      <div>
+        <h4 style="margin-bottom:12px;color:var(--primary)">Xodimlar va soatlar</h4>
+        {% for s in staff_list %}
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+          <span style="width:120px;font-size:13px">{{ s.name }}</span>
+          <span style="width:120px;font-size:11px;color:var(--text-light)">{{ s.role }}</span>
+          <input name="hours_{{ s.id }}" type="number" min="0" value="0" style="width:80px">
+          <span style="font-size:11px;color:var(--text-light)">soat</span>
+        </div>
+        {% endfor %}
+      </div>
+      <div>
+        <h4 style="margin-bottom:12px;color:var(--primary)">Risk parametrlari</h4>
+        <div class="field"><label>Muddat (oylar)</label>
+          <select name="deadline">
+            <option value="3">&lt; 4 oy (yuqori risk)</option>
+            <option value="6" selected>4-8 oy (o'rta)</option>
+            <option value="10">&gt; 8 oy (past risk)</option>
+          </select></div>
+        <div class="field"><label>Mijoz turi</label>
+          <select name="client_type">
+            <option value="regular">Doimiy mijoz</option>
+            <option value="new" selected>Yangi mijoz</option>
+            <option value="government">Davlat</option>
+          </select></div>
+        <div class="field"><label>Murakkablik</label>
+          <select name="complexity">
+            <option value="simple">Oddiy</option>
+            <option value="medium" selected>O'rta</option>
+            <option value="high">Yuqori</option>
+          </select></div>
+        <div class="field"><label>Valyuta</label>
+          <select name="currency">
+            <option value="UZS">UZS (so'm)</option>
+            <option value="USD">USD (dollar)</option>
+            <option value="KGS">KGS/EUR (boshqa)</option>
+          </select></div>
+        <div class="field"><label>Outsourcing xarajat (UZS)</label>
+          <input name="outsourcing" type="number" value="0"></div>
+        <div class="field"><label>Material xarajat (UZS)</label>
+          <input name="material" type="number" value="0"></div>
+        <div class="field" style="border-top:1px solid var(--border);padding-top:12px;margin-top:8px">
+          <label style="color:var(--primary);font-weight:700">PLAN ga saqlash (ixtiyoriy)</label>
+          <select name="save_project">
+            <option value="">Saqlamaslik</option>
+            {% for p in pricing_projects %}<option value="{{ p.name }}">{{ p.name }}</option>{% endfor %}
+          </select></div>
+      </div>
+    </div>
+
+    <div style="border-top:1px solid var(--border);margin-top:16px;padding-top:12px">
+      <label style="display:flex;align-items:center;gap:8px;font-weight:700;color:var(--primary);cursor:pointer">
+        <input type="checkbox" name="gen_milestones" id="genMs"
+               onchange="document.getElementById('msEditor').style.display=this.checked?'':'none'">
+        {{ t('pricing_ms_title') }}
+      </label>
+      <div id="msEditor" style="display:none;margin-top:10px">
+        <table style="font-size:12px">
+          <thead><tr>
+            <th>{{ t('pricing_ms_row_name') }}</th>
+            <th>{{ t('ms_th_work_type') }}</th>
+            <th>{{ t('ms_field_start') }}</th>
+            <th>{{ t('ms_field_end') }}</th>
+            <th>{{ t('pricing_ms_income_pct') }}</th>
+            <th>{{ t('pricing_ms_hours_pct') }}</th>
+            <th></th>
+          </tr></thead>
+          <tbody id="msRows"></tbody>
+        </table>
+        <div style="display:flex;gap:8px;margin-top:8px;align-items:center;flex-wrap:wrap">
+          <button type="button" class="btn btn-outline btn-sm" onclick="addMsRow()">+</button>
+          <button type="button" class="btn btn-outline btn-sm" onclick="fillDefaultTpl()">{{ t('pricing_ms_default_tpl') }}</button>
+          <span id="msPctHint" style="font-size:12px;color:var(--text-light)"></span>
+          <label style="margin-left:auto;font-size:12px;display:flex;gap:6px;align-items:center;cursor:pointer">
+            <input type="checkbox" name="ms_overwrite"> {{ t('pricing_ms_overwrite') }}
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <button type="submit" class="btn btn-primary" style="margin-top:16px">Narxni hisoblash</button>
+  </form>
+</div>
+<script>
+var WORK_TYPES = [
+{% for wt in work_types %}  {code: {{ wt.code|tojson }}, label: {{ wt.label_uz|tojson }}},
+{% endfor %}];
+var PCT_HINT = {{ t('pricing_ms_pct_hint')|tojson }};
+
+function wtOptions(selected) {
+  var html = '<option value=""></option>';
+  WORK_TYPES.forEach(function (wt) {
+    html += '<option value="' + wt.code + '"' + (wt.code === selected ? ' selected' : '') + '>' + wt.label + '</option>';
+  });
+  return html;
+}
+
+function addMsRow(name, wt, ipct, hpct) {
+  var tr = document.createElement('tr');
+  tr.innerHTML =
+    '<td><input name="ms_name" value="' + (name || '') + '" style="width:150px"></td>' +
+    '<td><select name="ms_work_type">' + wtOptions(wt || '') + '</select></td>' +
+    '<td><input type="month" name="ms_start" style="width:130px"></td>' +
+    '<td><input type="month" name="ms_end" style="width:130px"></td>' +
+    '<td><input type="number" name="ms_income_pct" value="' + (ipct || 0) + '" min="0" max="100" step="0.5" style="width:70px" oninput="updPct()"></td>' +
+    '<td><input type="number" name="ms_hours_pct" value="' + (hpct || 0) + '" min="0" max="100" step="0.5" style="width:70px" oninput="updPct()"></td>' +
+    '<td><button type="button" class="btn btn-outline btn-sm" onclick="this.closest(\'tr\').remove();updPct()">&times;</button></td>';
+  document.getElementById('msRows').appendChild(tr);
+  updPct();
+}
+
+function fillDefaultTpl() {
+  document.getElementById('msRows').innerHTML = '';
+  [['Eskiz loyiha', 'eskiz', 15, 15],
+   ['Arxitektura yechimlari', 'ar', 30, 35],
+   ['Konstruktiv yechimlar', 'kj', 25, 30],
+   ['Muhandislik tarmoqlari', 'im', 15, 10],
+   ['Smeta hujjatlari', 'smeta', 10, 5],
+   ['Avtorlik nazorati', 'nazorat', 5, 5]
+  ].forEach(function (r) { addMsRow(r[0], r[1], r[2], r[3]); });
+}
+
+function updPct() {
+  var si = 0, sh = 0;
+  document.querySelectorAll('#msRows [name=ms_income_pct]').forEach(function (i) { si += parseFloat(i.value) || 0; });
+  document.querySelectorAll('#msRows [name=ms_hours_pct]').forEach(function (i) { sh += parseFloat(i.value) || 0; });
+  var el = document.getElementById('msPctHint');
+  el.textContent = PCT_HINT.replace('{0}', si.toFixed(1)).replace('{1}', sh.toFixed(1));
+  el.style.color = (Math.abs(si - 100) > 0.5 || Math.abs(sh - 100) > 0.5) ? 'var(--red)' : 'var(--done)';
+}
+</script>
+{% endblock %}

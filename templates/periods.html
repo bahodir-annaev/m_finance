@@ -1,0 +1,221 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Moliyaviy Davrlar</h1>
+    <p class="page-subtitle">Period close · Snapshot boshqaruvi · Tarix himoyasi</p>
+  </div>
+</div>
+
+{% if msg %}{{ msg|safe }}{% endif %}
+
+{# ── Stats ── #}
+<div class="stats">
+  <div class="stat">
+    <div class="label">Ochiq davrlar</div>
+    <div class="value" style="color:var(--blue)">{{ stats.open }}</div>
+    <div class="sub">Faol tahrirlash mumkin</div>
+  </div>
+  <div class="stat">
+    <div class="label">Yumshoq yopilgan</div>
+    <div class="value" style="color:var(--amber)">{{ stats.soft_closed }}</div>
+    <div class="sub">Snapshotlangan, lekin ochiladigan</div>
+  </div>
+  <div class="stat">
+    <div class="label">To'liq yopilgan</div>
+    <div class="value" style="color:var(--done)">{{ stats.hard_closed }}</div>
+    <div class="sub">Himoyalangan, o'zgartirib bo'lmaydi</div>
+  </div>
+  <div class="stat">
+    <div class="label">Jami davrlar</div>
+    <div class="value">{{ period_info|length }}</div>
+    <div class="sub">Barcha davrlari</div>
+  </div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 340px;gap:20px;align-items:start">
+
+{# ── Period table ── #}
+<div class="card" style="margin-bottom:0">
+  <h3>Davrlar ro'yxati</h3>
+  {% if period_info %}
+  <table>
+    <thead><tr>
+      <th>Davr</th>
+      <th>Boshlanish</th>
+      <th>Tugash</th>
+      <th>Holat</th>
+      <th>Xodim snapshotlari</th>
+      <th>Soat yozuvlari</th>
+      <th>Yopilgan vaqt</th>
+      <th style="text-align:center">Amallar</th>
+    </tr></thead>
+    <tbody>
+    {% for p in period_info %}
+      {% if p.status == 'open' %}
+        {% set badge_color = 'background:#EFF6FF;color:var(--blue);border:1px solid #BFDBFE' %}
+        {% set status_label = 'Ochiq' %}
+      {% elif p.status == 'soft_closed' %}
+        {% set badge_color = 'background:#FFFBEB;color:#92400E;border:1px solid #FDE68A' %}
+        {% set status_label = 'Yumshoq yopilgan' %}
+      {% else %}
+        {% set badge_color = 'background:#F0FDF4;color:var(--done);border:1px solid #BBF7D0' %}
+        {% set status_label = "To'liq yopilgan" %}
+      {% endif %}
+
+      {% set snap_ok = p.staff_snapshots > 0 %}
+      {% set hours_ok = p.hours_total == 0 or p.hours_snapped == p.hours_total %}
+
+      <tr>
+        <td><b>{{ p.code }}</b>{% if p.notes %}<br><span style="font-size:11px;color:var(--text-light)">{{ p.notes }}</span>{% endif %}</td>
+        <td>{{ p.start_date }}</td>
+        <td>{{ p.end_date }}</td>
+        <td><span class="badge" style="{{ badge_color }}">{{ status_label }}</span></td>
+
+        {# Staff snapshots cell #}
+        <td style="text-align:center">
+          {% if snap_ok %}
+            <span style="color:var(--done);font-weight:600">{{ p.staff_snapshots }} ✓</span>
+          {% elif p.status == 'open' %}
+            <span style="color:var(--text-light)">—</span>
+          {% else %}
+            <span style="color:var(--amber)">0 !</span>
+          {% endif %}
+        </td>
+
+        {# Hours snapshot cell #}
+        <td style="text-align:center">
+          {% if p.hours_total == 0 %}
+            <span style="color:var(--text-light)">—</span>
+          {% elif hours_ok %}
+            <span style="color:var(--done);font-weight:600">{{ p.hours_snapped }}/{{ p.hours_total }} ✓</span>
+          {% else %}
+            <span style="color:var(--amber)">{{ p.hours_snapped }}/{{ p.hours_total }}</span>
+          {% endif %}
+        </td>
+
+        <td style="font-size:12px;color:var(--text-light)">
+          {{ p.closed_at[:10] if p.closed_at else '—' }}
+        </td>
+
+        {# Action buttons #}
+        <td style="text-align:center;white-space:nowrap">
+          {% if p.status == 'open' %}
+            <form method="post" style="display:inline" onsubmit="return confirm('{{ p.code }} davrini yumshoq yopishni tasdiqlaysizmi?')">
+              <input type="hidden" name="action" value="soft_close">
+              <input type="hidden" name="code" value="{{ p.code }}">
+              <button type="submit" class="btn btn-sm btn-outline" title="Snapshotlarni saqlaydi, lekin qayta ochsa bo'ladi" style="color:var(--amber);border-color:var(--amber)">
+                ⊙ Yumshoq yopish
+              </button>
+            </form>
+            <form method="post" style="display:inline;margin-left:4px" onsubmit="return confirm('{{ p.code }} davrini TO\'LIQ yopishni tasdiqlaysizmi? Bu amalni ortga qaytarib bo\'lmaydi.')">
+              <input type="hidden" name="action" value="hard_close">
+              <input type="hidden" name="code" value="{{ p.code }}">
+              <button type="submit" class="btn btn-sm btn-primary" title="Barcha snapshotlarni saqlaydi va davrni qulflaydi">
+                ✓ To'liq yopish
+              </button>
+            </form>
+            <form method="post" style="display:inline;margin-left:4px" onsubmit="return confirm('{{ p.code }} davrini o\'chirishni tasdiqlaysizmi?')">
+              <input type="hidden" name="action" value="delete">
+              <input type="hidden" name="code" value="{{ p.code }}">
+              <button type="submit" class="btn btn-sm btn-danger">✕</button>
+            </form>
+
+          {% elif p.status == 'soft_closed' %}
+            <form method="post" style="display:inline" onsubmit="return confirm('{{ p.code }} davrini TO\'LIQ yopishni tasdiqlaysizmi?')">
+              <input type="hidden" name="action" value="hard_close">
+              <input type="hidden" name="code" value="{{ p.code }}">
+              <button type="submit" class="btn btn-sm btn-primary">✓ To'liq yopish</button>
+            </form>
+            <form method="post" style="display:inline;margin-left:4px" onsubmit="return confirm('{{ p.code }} davrini qayta ochishni tasdiqlaysizmi?')">
+              <input type="hidden" name="action" value="reopen">
+              <input type="hidden" name="code" value="{{ p.code }}">
+              <button type="submit" class="btn btn-sm btn-outline">↺ Qayta ochish</button>
+            </form>
+
+          {% else %}
+            <span style="font-size:11px;color:var(--text-light)">Qulflangan</span>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div style="text-align:center;padding:40px 0;color:var(--text-light)">
+    <div style="font-size:32px;margin-bottom:12px">📅</div>
+    <div>Hali hech qanday davr yaratilmagan.</div>
+    <div style="font-size:12px;margin-top:6px">Birinchi davrni o'ng tarafdagi formadan yarating.</div>
+  </div>
+  {% endif %}
+</div>
+
+{# ── Right column: create form + explainer ── #}
+<div>
+
+  {# Create period form #}
+  <div class="card" style="margin-bottom:16px">
+    <h3>Yangi davr yaratish</h3>
+    <form method="post">
+      <input type="hidden" name="action" value="create">
+      <div class="field">
+        <label>Davr kodi (YYYY-MM)</label>
+        <input type="text" name="code" value="{{ suggested }}" placeholder="2026-04"
+               pattern="\d{4}-\d{2}" maxlength="7" required
+               style="font-family:monospace;font-size:15px;font-weight:700;letter-spacing:1px">
+      </div>
+      <div class="field">
+        <label>Izoh (ixtiyoriy)</label>
+        <input type="text" name="notes" placeholder="masalan: Q2 2026 — birinchi kvartal yopilishi">
+      </div>
+      <button type="submit" class="btn btn-primary" style="width:100%">
+        + Davr yaratish
+      </button>
+    </form>
+  </div>
+
+  {# Status explainer #}
+  <div class="card" style="margin-bottom:0;padding:18px">
+    <h3 style="margin-bottom:12px">Holat ma'nolari</h3>
+    <div style="display:flex;flex-direction:column;gap:12px;font-size:12px">
+
+      <div style="display:flex;gap:10px;align-items:flex-start">
+        <span class="badge" style="background:#EFF6FF;color:var(--blue);border:1px solid #BFDBFE;white-space:nowrap;flex-shrink:0">Ochiq</span>
+        <span style="color:var(--text-light)">Oddiy tahrirlash rejimi. Barcha hisob-kitoblar jonli. Har qanday yozuv o'zgartirilishi mumkin.</span>
+      </div>
+
+      <div style="display:flex;gap:10px;align-items:flex-start">
+        <span class="badge" style="background:#FFFBEB;color:#92400E;border:1px solid #FDE68A;white-space:nowrap;flex-shrink:0">Yumshoq yopilgan</span>
+        <span style="color:var(--text-light)">Stavkalar va allokatsiyalar saqlandi. Davrni hali qayta ochish mumkin. Proekt xarajatlari tarixiy qiymatlardan o'qiladi.</span>
+      </div>
+
+      <div style="display:flex;gap:10px;align-items:flex-start">
+        <span class="badge" style="background:#F0FDF4;color:var(--done);border:1px solid #BBF7D0;white-space:nowrap;flex-shrink:0">To'liq yopilgan</span>
+        <span style="color:var(--text-light)">Barcha snapshotlar saqlangan. O'zgartirib bo'lmaydi. Tuzatish uchun joriy davrda reversal yozuvi kerak.</span>
+      </div>
+    </div>
+
+    <div style="margin-top:16px;padding:12px;background:var(--bg);border-radius:8px;font-size:11px;color:var(--text-light);line-height:1.7">
+      <b style="color:var(--primary);display:block;margin-bottom:4px">To'liq yopishda nima sodir bo'ladi?</b>
+      1. <b>period_allocations</b> — har bir xodim uchun maosh, soliq, admin/overhead/texnika ulushi muzlatiladi<br>
+      2. <b>project_hours</b> — har bir soat yozuviga applied_cost_amount va applied_billing_amount yoziladi<br>
+      3. <b>fiscal_periods.status</b> → <code>hard_closed</code>, <code>closed_at</code> vaqti belgilanadi<br>
+      <br>
+      Keyinchalik eski maoshni o'zgartirsa ham — bu davr raqamlari o'zgarmaydi.
+    </div>
+  </div>
+
+</div>
+</div>
+
+{# ── Snapshot coverage legend ── #}
+{% if period_info %}
+<div style="margin-top:16px;font-size:11px;color:var(--text-light);display:flex;gap:20px">
+  <span><b style="color:var(--done)">N ✓</b> — snapshot to'liq</span>
+  <span><b style="color:var(--amber)">N/M</b> — qisman (M ta yozuvdan N tasi snapshotlangan)</span>
+  <span><b style="color:var(--text-light)">—</b> — ma'lumot yo'q yoki davr ochiq</span>
+</div>
+{% endif %}
+
+{% endblock %}

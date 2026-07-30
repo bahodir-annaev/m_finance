@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">{{ t('proj_title') }}</h1>
+    <p class="page-subtitle">{{ t('proj_subtitle') }}</p>
+  </div>
+  <div class="page-actions no-print">
+    <button onclick="window.print()" class="btn btn-outline">Print</button>
+  </div>
+</div>
+<div class="card">
+  <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap" class="no-print">
+    <input type="text" id="pSearch" placeholder="Qidirish..." oninput="filterP()" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;width:200px;background:var(--surface)">
+    <select id="pFStatus" onchange="filterP()" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:var(--surface)">
+      <option value="">{{ t('th_status') }} - {{ t('th_total') }}</option>
+      {% for s in statuses %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+    </select>
+    <button onclick="document.getElementById('pSearch').value='';document.getElementById('pFStatus').value='';filterP()" class="btn btn-outline btn-sm">Reset</button>
+  </div>
+  <table id="pTable">
+    <thead><tr>
+      <th onclick="sortT('pTable',0)" style="cursor:pointer">{{ t('proj_name') }} <span class="sort-icon">&#x25B4;&#x25BE;</span></th>
+      <th onclick="sortT('pTable',1)" style="cursor:pointer">{{ t('th_risk_coeff') }} <span class="sort-icon">&#x25B4;&#x25BE;</span></th>
+      <th onclick="sortT('pTable',2)" style="cursor:pointer">{{ t('proj_total_hours') }} <span class="sort-icon">&#x25B4;&#x25BE;</span></th>
+      <th onclick="sortT('pTable',3)" style="cursor:pointer">{{ t('th_staff_count') }} <span class="sort-icon">&#x25B4;&#x25BE;</span></th>
+      <th>{{ t('proj_th_milestones') }}</th>
+      <th>{{ t('th_status') }}</th>
+    </tr></thead>
+    <tbody id="pBody">
+      {% for p in projects %}
+      {% set st_color = 'color:var(--done)' if p.status == 'completed' else ('color:var(--amber)' if p.status == 'active' else '') %}
+      <tr data-status="{{ p.status }}">
+        <td><a href="/projects/{{ p.id }}" style="font-weight:600">{{ p.name }}</a></td>
+        <td class="num">{{ p.risk_coefficient }}</td>
+        <td class="num">{{ fmt(p.total_hours, 1) }}</td>
+        <td class="num">{{ p.staff_count or 0 }}</td>
+        <td style="white-space:nowrap">
+          {% if p.ms_total %}{{ p.ms_done }}/{{ p.ms_total }}
+            {% if p.ms_late %}<span class="loss" title="{{ t('ms_badge_late') }}">⚠{{ p.ms_late }}</span>{% endif %}
+          {% else %}—{% endif %}
+        </td>
+        <td style="{{ st_color }}">{{ p.status }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <div id="pCount" style="margin-top:10px;font-size:12px;color:var(--text-light)"></div>
+</div>
+<script>
+var _sd = {};
+function sortT(tid, col) {
+  var tb = document.getElementById(tid).querySelector('tbody');
+  var rs = Array.from(tb.querySelectorAll('tr'));
+  if (!rs.length) return;
+  var d = _sd[tid+'_'+col] === 'asc' ? 'desc' : 'asc';
+  _sd[tid+'_'+col] = d;
+  rs.sort(function(a, b) {
+    var av = a.cells[col].textContent.trim(), bv = b.cells[col].textContent.trim();
+    var an = parseFloat(av.replace(/[,$]/g, '')), bn = parseFloat(bv.replace(/[,$]/g, ''));
+    if (!isNaN(an) && !isNaN(bn)) return d === 'asc' ? an - bn : bn - an;
+    return d === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+  });
+  rs.forEach(function(r) { tb.appendChild(r); });
+}
+function filterP() {
+  var q = document.getElementById('pSearch').value.toLowerCase();
+  var st = document.getElementById('pFStatus').value;
+  var rs = document.querySelectorAll('#pBody tr');
+  var n = 0;
+  rs.forEach(function(r) {
+    var ok = (!q || r.textContent.toLowerCase().includes(q)) && (!st || r.dataset.status === st);
+    r.style.display = ok ? '' : 'none';
+    if (ok) n++;
+  });
+  document.getElementById('pCount').textContent = n + ' / ' + rs.length;
+}
+filterP();
+</script>
+{% endblock %}

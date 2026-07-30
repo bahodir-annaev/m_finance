@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">{{ t('cf_title') }}</h1>
+    <p class="page-subtitle">{{ t('cf_subtitle') }}</p>
+  </div>
+  <div class="page-actions no-print">
+    <button onclick="window.print()" class="btn btn-outline">Print</button>
+  </div>
+</div>
+
+<div class="stats">
+  <div class="stat stat-green">
+    <div class="label">{{ t('cf_total_income') }}</div>
+    <div class="value">{{ fmt(tiles.income) }}</div>
+  </div>
+  <div class="stat stat-red">
+    <div class="label">{{ t('cf_total_expense') }}</div>
+    <div class="value">{{ fmt(tiles.expense) }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">{{ t('cf_loan_net') }}</div>
+    <div class="value">{{ fmt(tiles.loan_net) }}</div>
+  </div>
+  <div class="stat {{ 'stat-green' if tiles.balance >= 0 else 'stat-red' }}">
+    <div class="label">{{ t('cf_net_balance') }}</div>
+    <div class="value">{{ fmt(tiles.balance) }}</div>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:20px">
+  <h3>{{ t('cf_by_paytype') }}</h3>
+  <table>
+    <thead><tr><th>To'lov turi</th><th>Tushum</th><th>Xarajat</th><th>Sof</th></tr></thead>
+    <tbody>
+      {% for pt, v in pay_summary.by_type.items() %}
+      <tr>
+        <td><b>{{ pt.upper() }}</b></td>
+        <td class="num" style="color:var(--done)">{{ fmt(v.income) }}</td>
+        <td class="num" style="color:var(--red)">{{ fmt(v.expense) }}</td>
+        <td class="num {{ 'profit' if v.net >= 0 else 'loss' }}">{{ fmt(v.net) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="formula-box">
+Net Cash Flow = {{ t('th_income') }} - ({{ t('th_ext_expense') }} + {{ t('th_int_expense') }} + {{ t('th_dividends') }}) &plusmn; {{ t('th_loan_flow') }}<br>
+Running Balance = prev balance + current month net cash flow<br>
+<b>{{ t('cf_formula_note') }}</b>
+</div>
+
+{% if cf %}
+<div class="card">
+  <h3>{{ t('cf_card_title') }}</h3>
+  <table>
+    <tr>
+      <th>{{ t('th_month') }}</th><th>{{ t('th_income') }}</th>
+      <th>{{ t('th_ext_expense') }}</th><th>{{ t('th_int_expense') }}</th>
+      <th>{{ t('th_dividends') }}</th>
+      <th>{{ t('th_total_expense') }}</th><th>{{ t('th_loan_flow') }}</th>
+      <th>{{ t('th_net_cf') }}</th><th>{{ t('th_balance') }}</th>
+    </tr>
+    {% for m in cf %}
+    <tr>
+      <td><b>{{ m.month }}</b></td>
+      <td class="num" style="color:var(--green)">{{ fmt(m.income) }}</td>
+      <td class="num">{{ fmt(m.ext_expense) }}</td>
+      <td class="num">{{ fmt(m.int_expense) }}</td>
+      <td class="num" style="color:var(--red)">{{ fmt(m.dividends) }}</td>
+      <td class="num">{{ fmt(m.total_expense) }}</td>
+      <td class="num" style="color:{{ 'var(--green)' if m.loan_flow >= 0 else 'var(--red)' }}">{{ fmt(m.loan_flow) }}</td>
+      <td class="num {{ 'cashflow-pos' if m.net_cash_flow >= 0 else 'cashflow-neg' }}">{{ fmt(m.net_cash_flow) }}</td>
+      <td class="num {{ 'profit' if m.running_balance >= 0 else 'loss' }}">{{ fmt(m.running_balance) }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+{% else %}
+<div class="card">
+  <div class="empty-state" style="padding:60px">{{ t('cf_empty') }}</div>
+</div>
+{% endif %}
+{% endblock %}

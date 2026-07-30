@@ -1,0 +1,644 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Qidiruv Jadvallari</h1>
+    <p class="page-subtitle">Tranzaksiya turlari · To'lov usullari · Ish turlari · Bo'limlar · Lavozimlar</p>
+  </div>
+</div>
+
+{% if msg %}{{ msg|safe }}{% endif %}
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start">
+
+{# ── tx_types ── #}
+<div>
+  <div class="card" style="margin-bottom:16px">
+    <h3>Tranzaksiya turlari <span style="font-size:12px;color:var(--text-light);font-weight:400">(tx_types)</span></h3>
+    {% if tx_types %}
+    <table>
+      <thead><tr>
+        <th>Kod</th>
+        <th>Nomi (uz)</th>
+        <th>Yo'nalish</th>
+        <th style="text-align:center">Tartib</th>
+        <th style="text-align:center">Holat</th>
+        <th style="text-align:center">Amallar</th>
+      </tr></thead>
+      <tbody>
+      {% for row in tx_types %}
+        {% if row.direction == 'external' %}
+          {% set dir_style = 'background:#EFF6FF;color:var(--blue);border:1px solid #BFDBFE' %}
+          {% set dir_label = 'Tashqi' %}
+        {% elif row.direction == 'internal' %}
+          {% set dir_style = 'background:#FFFBEB;color:#92400E;border:1px solid #FDE68A' %}
+          {% set dir_label = 'Ichki' %}
+        {% else %}
+          {% set dir_style = 'background:#F5F3FF;color:#6D28D9;border:1px solid #DDD6FE' %}
+          {% set dir_label = 'Ikkalasi' %}
+        {% endif %}
+        <tr {% if not row.is_active %}style="opacity:0.5"{% endif %}>
+          <td style="font-family:monospace;font-size:12px;font-weight:600">{{ row.code }}</td>
+          <td>
+            {{ row.label_uz }}
+            {% if row.label_en %}<br><span style="font-size:11px;color:var(--text-light)">{{ row.label_en }}</span>{% endif %}
+          </td>
+          <td><span class="badge" style="{{ dir_style }}">{{ dir_label }}</span></td>
+          <td style="text-align:center;font-size:12px;color:var(--text-light)">{{ row.sort_order }}</td>
+          <td style="text-align:center">
+            {% if row.is_active %}<span class="badge" style="background:#F0FDF4;color:var(--done);border:1px solid #BBF7D0">Faol</span>
+            {% else %}<span class="badge" style="background:#FEF2F2;color:#DC2626;border:1px solid #FECACA">Nofaol</span>{% endif %}
+          </td>
+          <td style="text-align:center;white-space:nowrap">
+            <button type="button" class="btn btn-sm btn-outline" onclick="toggleEdit('tx',{{ row.id }})">✎</button>
+            <form method="post" style="display:inline;margin-left:4px"
+                  onsubmit="return confirm('{{ row.code }} ni o\'chirishni tasdiqlaysizmi?')">
+              <input type="hidden" name="action" value="delete">
+              <input type="hidden" name="table" value="tx_types">
+              <input type="hidden" name="id" value="{{ row.id }}">
+              <button type="submit" class="btn btn-sm btn-danger">✕</button>
+            </form>
+          </td>
+        </tr>
+        <tr id="edit-tx-{{ row.id }}" style="display:none;background:var(--bg)">
+          <td colspan="6" style="padding:14px 16px">
+            <form method="post">
+              <input type="hidden" name="action" value="edit">
+              <input type="hidden" name="table" value="tx_types">
+              <input type="hidden" name="id" value="{{ row.id }}">
+              <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:10px">
+                <div class="field" style="margin:0">
+                  <label>Kod *</label>
+                  <input type="text" name="code" value="{{ row.code }}" required style="font-family:monospace;font-weight:700">
+                </div>
+                <div class="field" style="margin:0">
+                  <label>Nomi (uz) *</label>
+                  <input type="text" name="label_uz" value="{{ row.label_uz }}" required>
+                </div>
+                <div class="field" style="margin:0">
+                  <label>Nomi (en)</label>
+                  <input type="text" name="label_en" value="{{ row.label_en or '' }}">
+                </div>
+                <div class="field" style="margin:0">
+                  <label>Nomi (ru)</label>
+                  <input type="text" name="label_ru" value="{{ row.label_ru or '' }}">
+                </div>
+                <div class="field" style="margin:0">
+                  <label>Yo'nalish</label>
+                  <select name="direction">
+                    <option value="external" {% if row.direction=='external' %}selected{% endif %}>Tashqi</option>
+                    <option value="internal" {% if row.direction=='internal' %}selected{% endif %}>Ichki</option>
+                    <option value="both" {% if row.direction=='both' %}selected{% endif %}>Ikkalasi</option>
+                  </select>
+                </div>
+                <div class="field" style="margin:0">
+                  <label>Tartib</label>
+                  <input type="number" name="sort_order" value="{{ row.sort_order }}" min="1" max="9999">
+                </div>
+              </div>
+              <div style="display:flex;gap:12px;margin-bottom:10px;font-size:13px">
+                <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                  <input type="checkbox" name="is_active" {% if row.is_active %}checked{% endif %}> Faol
+                </label>
+              </div>
+              <div style="display:flex;gap:8px">
+                <button type="submit" class="btn btn-primary btn-sm">Saqlash</button>
+                <button type="button" class="btn btn-outline btn-sm" onclick="toggleEdit('tx',{{ row.id }})">Bekor</button>
+              </div>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div style="text-align:center;padding:30px 0;color:var(--text-light)">Hali turlar mavjud emas.</div>
+    {% endif %}
+  </div>
+
+  {# Add tx_type form #}
+  <div class="card" style="margin-bottom:0">
+    <h3 style="font-size:14px">+ Yangi tranzaksiya turi</h3>
+    <form method="post">
+      <input type="hidden" name="action" value="add">
+      <input type="hidden" name="table" value="tx_types">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div class="field" style="margin:0">
+          <label>Kod *</label>
+          <input type="text" name="code" placeholder="yangi_tur" required style="font-family:monospace;font-weight:700">
+        </div>
+        <div class="field" style="margin:0">
+          <label>Nomi (uz) *</label>
+          <input type="text" name="label_uz" placeholder="Yangi tur nomi" required>
+        </div>
+        <div class="field" style="margin:0">
+          <label>Nomi (en)</label>
+          <input type="text" name="label_en" placeholder="New type name">
+        </div>
+        <div class="field" style="margin:0">
+          <label>Nomi (ru)</label>
+          <input type="text" name="label_ru" placeholder="Новый тип">
+        </div>
+        <div class="field" style="margin:0">
+          <label>Yo'nalish</label>
+          <select name="direction">
+            <option value="external">Tashqi (external)</option>
+            <option value="internal">Ichki (internal)</option>
+            <option value="both">Ikkalasi (both)</option>
+          </select>
+        </div>
+        <div class="field" style="margin:0">
+          <label>Tartib</label>
+          <input type="number" name="sort_order" value="100" min="1" max="9999">
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary btn-sm" style="margin-top:12px;width:100%">+ Qo'shish</button>
+    </form>
+  </div>
+</div>
+
+{# ── payment_types ── #}
+<div>
+  <div class="card" style="margin-bottom:16px">
+    <h3>To'lov usullari <span style="font-size:12px;color:var(--text-light);font-weight:400">(payment_types)</span></h3>
+    {% if payment_types %}
+    <table>
+      <thead><tr>
+        <th>Kod</th>
+        <th>Nomi (uz)</th>
+        <th style="text-align:center">Tartib</th>
+        <th style="text-align:center">Holat</th>
+        <th style="text-align:center">Amallar</th>
+      </tr></thead>
+      <tbody>
+      {% for row in payment_types %}
+        <tr {% if not row.is_active %}style="opacity:0.5"{% endif %}>
+          <td style="font-family:monospace;font-size:12px;font-weight:600">{{ row.code }}</td>
+          <td>
+            {{ row.label_uz }}
+            {% if row.label_en %}<br><span style="font-size:11px;color:var(--text-light)">{{ row.label_en }}</span>{% endif %}
+          </td>
+          <td style="text-align:center;font-size:12px;color:var(--text-light)">{{ row.sort_order }}</td>
+          <td style="text-align:center">
+            {% if row.is_active %}<span class="badge" style="background:#F0FDF4;color:var(--done);border:1px solid #BBF7D0">Faol</span>
+            {% else %}<span class="badge" style="background:#FEF2F2;color:#DC2626;border:1px solid #FECACA">Nofaol</span>{% endif %}
+          </td>
+          <td style="text-align:center;white-space:nowrap">
+            <button type="button" class="btn btn-sm btn-outline" onclick="toggleEdit('pt',{{ row.id }})">✎</button>
+            <form method="post" style="display:inline;margin-left:4px"
+                  onsubmit="return confirm('{{ row.code }} ni o\'chirishni tasdiqlaysizmi?')">
+              <input type="hidden" name="action" value="delete">
+              <input type="hidden" name="table" value="payment_types">
+              <input type="hidden" name="id" value="{{ row.id }}">
+              <button type="submit" class="btn btn-sm btn-danger">✕</button>
+            </form>
+          </td>
+        </tr>
+        <tr id="edit-pt-{{ row.id }}" style="display:none;background:var(--bg)">
+          <td colspan="5" style="padding:14px 16px">
+            <form method="post">
+              <input type="hidden" name="action" value="edit">
+              <input type="hidden" name="table" value="payment_types">
+              <input type="hidden" name="id" value="{{ row.id }}">
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+                <div class="field" style="margin:0">
+                  <label>Kod *</label>
+                  <input type="text" name="code" value="{{ row.code }}" required style="font-family:monospace;font-weight:700">
+                </div>
+                <div class="field" style="margin:0">
+                  <label>Nomi (uz) *</label>
+                  <input type="text" name="label_uz" value="{{ row.label_uz }}" required>
+                </div>
+                <div class="field" style="margin:0">
+                  <label>Nomi (en)</label>
+                  <input type="text" name="label_en" value="{{ row.label_en or '' }}">
+                </div>
+                <div class="field" style="margin:0">
+                  <label>Nomi (ru)</label>
+                  <input type="text" name="label_ru" value="{{ row.label_ru or '' }}">
+                </div>
+                <div class="field" style="margin:0">
+                  <label>Tartib</label>
+                  <input type="number" name="sort_order" value="{{ row.sort_order }}" min="1" max="9999">
+                </div>
+              </div>
+              <div style="display:flex;gap:12px;margin-bottom:10px;font-size:13px">
+                <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                  <input type="checkbox" name="is_active" {% if row.is_active %}checked{% endif %}> Faol
+                </label>
+              </div>
+              <div style="display:flex;gap:8px">
+                <button type="submit" class="btn btn-primary btn-sm">Saqlash</button>
+                <button type="button" class="btn btn-outline btn-sm" onclick="toggleEdit('pt',{{ row.id }})">Bekor</button>
+              </div>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div style="text-align:center;padding:30px 0;color:var(--text-light)">Hali to'lov usullari mavjud emas.</div>
+    {% endif %}
+  </div>
+
+  {# Add payment_type form #}
+  <div class="card" style="margin-bottom:0">
+    <h3 style="font-size:14px">+ Yangi to'lov usuli</h3>
+    <form method="post">
+      <input type="hidden" name="action" value="add">
+      <input type="hidden" name="table" value="payment_types">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div class="field" style="margin:0">
+          <label>Kod *</label>
+          <input type="text" name="code" placeholder="yangi_usul" required style="font-family:monospace;font-weight:700">
+        </div>
+        <div class="field" style="margin:0">
+          <label>Nomi (uz) *</label>
+          <input type="text" name="label_uz" placeholder="Yangi usul nomi" required>
+        </div>
+        <div class="field" style="margin:0">
+          <label>Nomi (en)</label>
+          <input type="text" name="label_en" placeholder="New method name">
+        </div>
+        <div class="field" style="margin:0">
+          <label>Nomi (ru)</label>
+          <input type="text" name="label_ru" placeholder="Новый метод">
+        </div>
+        <div class="field" style="margin:0">
+          <label>Tartib</label>
+          <input type="number" name="sort_order" value="100" min="1" max="9999">
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary btn-sm" style="margin-top:12px;width:100%">+ Qo'shish</button>
+    </form>
+  </div>
+</div>
+
+{# ── work_types (milestone work stages) ── #}
+<div>
+  <div class="card" style="margin-bottom:16px">
+    <h3>Ish turlari <span style="font-size:12px;color:var(--text-light);font-weight:400">(work_types — bosqichlar)</span></h3>
+    {% if work_types %}
+    <table>
+      <thead><tr>
+        <th>Kod</th>
+        <th>Nomi (uz)</th>
+        <th style="text-align:center">Tartib</th>
+        <th style="text-align:center">Holat</th>
+        <th style="text-align:center">Amallar</th>
+      </tr></thead>
+      <tbody>
+      {% for row in work_types %}
+        <tr {% if not row.is_active %}style="opacity:0.5"{% endif %}>
+          <td style="font-family:monospace;font-size:12px;font-weight:600">{{ row.code }}</td>
+          <td>
+            {{ row.label_uz }}
+            {% if row.label_en %}<br><span style="font-size:11px;color:var(--text-light)">{{ row.label_en }}</span>{% endif %}
+          </td>
+          <td style="text-align:center;font-size:12px;color:var(--text-light)">{{ row.sort_order }}</td>
+          <td style="text-align:center">
+            {% if row.is_active %}<span class="badge" style="background:#F0FDF4;color:var(--done);border:1px solid #BBF7D0">Faol</span>
+            {% else %}<span class="badge" style="background:#FEF2F2;color:#DC2626;border:1px solid #FECACA">Nofaol</span>{% endif %}
+          </td>
+          <td style="text-align:center;white-space:nowrap">
+            <button type="button" class="btn btn-sm btn-outline" onclick="toggleEdit('wt',{{ row.id }})">✎</button>
+            <form method="post" style="display:inline;margin-left:4px"
+                  onsubmit="return confirm('{{ row.code }} ni o\'chirishni tasdiqlaysizmi?')">
+              <input type="hidden" name="action" value="delete">
+              <input type="hidden" name="table" value="work_types">
+              <input type="hidden" name="id" value="{{ row.id }}">
+              <button type="submit" class="btn btn-sm btn-danger">✕</button>
+            </form>
+          </td>
+        </tr>
+        <tr id="edit-wt-{{ row.id }}" style="display:none;background:var(--bg)">
+          <td colspan="5" style="padding:14px 16px">
+            <form method="post">
+              <input type="hidden" name="action" value="edit">
+              <input type="hidden" name="table" value="work_types">
+              <input type="hidden" name="id" value="{{ row.id }}">
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+                <div class="field" style="margin:0">
+                  <label>Kod *</label>
+                  <input type="text" name="code" value="{{ row.code }}" required style="font-family:monospace;font-weight:700">
+                </div>
+                <div class="field" style="margin:0">
+                  <label>Nomi (uz) *</label>
+                  <input type="text" name="label_uz" value="{{ row.label_uz }}" required>
+                </div>
+                <div class="field" style="margin:0">
+                  <label>Nomi (en)</label>
+                  <input type="text" name="label_en" value="{{ row.label_en or '' }}">
+                </div>
+                <div class="field" style="margin:0">
+                  <label>Nomi (ru)</label>
+                  <input type="text" name="label_ru" value="{{ row.label_ru or '' }}">
+                </div>
+                <div class="field" style="margin:0">
+                  <label>Tartib</label>
+                  <input type="number" name="sort_order" value="{{ row.sort_order }}" min="1" max="9999">
+                </div>
+              </div>
+              <div style="display:flex;gap:12px;margin-bottom:10px;font-size:13px">
+                <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                  <input type="checkbox" name="is_active" {% if row.is_active %}checked{% endif %}> Faol
+                </label>
+              </div>
+              <div style="display:flex;gap:8px">
+                <button type="submit" class="btn btn-primary btn-sm">Saqlash</button>
+                <button type="button" class="btn btn-outline btn-sm" onclick="toggleEdit('wt',{{ row.id }})">Bekor</button>
+              </div>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div style="text-align:center;padding:30px 0;color:var(--text-light)">Hali ish turlari mavjud emas.</div>
+    {% endif %}
+  </div>
+
+  {# Add work_type form #}
+  <div class="card" style="margin-bottom:0">
+    <h3 style="font-size:14px">+ Yangi ish turi</h3>
+    <form method="post">
+      <input type="hidden" name="action" value="add">
+      <input type="hidden" name="table" value="work_types">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div class="field" style="margin:0">
+          <label>Kod *</label>
+          <input type="text" name="code" placeholder="yangi_tur" required style="font-family:monospace;font-weight:700">
+        </div>
+        <div class="field" style="margin:0">
+          <label>Nomi (uz) *</label>
+          <input type="text" name="label_uz" placeholder="Yangi ish turi" required>
+        </div>
+        <div class="field" style="margin:0">
+          <label>Nomi (en)</label>
+          <input type="text" name="label_en" placeholder="New work type">
+        </div>
+        <div class="field" style="margin:0">
+          <label>Nomi (ru)</label>
+          <input type="text" name="label_ru" placeholder="Новый вид работ">
+        </div>
+        <div class="field" style="margin:0">
+          <label>Tartib</label>
+          <input type="number" name="sort_order" value="100" min="1" max="9999">
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary btn-sm" style="margin-top:12px;width:100%">+ Qo'shish</button>
+    </form>
+  </div>
+</div>
+
+{# ── departments (staff bo'limlari) ── #}
+<div>
+  <div class="card" style="margin-bottom:16px">
+    <h3>Bo'limlar <span style="font-size:12px;color:var(--text-light);font-weight:400">(departments — xodim bo'limlari)</span></h3>
+    {% if departments %}
+    <table>
+      <thead><tr>
+        <th>Kod</th>
+        <th>Nomi (uz)</th>
+        <th style="text-align:center">Tartib</th>
+        <th style="text-align:center">Holat</th>
+        <th style="text-align:center">Amallar</th>
+      </tr></thead>
+      <tbody>
+      {% for row in departments %}
+        <tr {% if not row.is_active %}style="opacity:0.5"{% endif %}>
+          <td style="font-family:monospace;font-size:12px;font-weight:600">{{ row.code }}</td>
+          <td>
+            {{ row.label_uz }}
+            {% if row.label_en %}<br><span style="font-size:11px;color:var(--text-light)">{{ row.label_en }}</span>{% endif %}
+          </td>
+          <td style="text-align:center;font-size:12px;color:var(--text-light)">{{ row.sort_order }}</td>
+          <td style="text-align:center">
+            {% if row.is_active %}<span class="badge" style="background:#F0FDF4;color:var(--done);border:1px solid #BBF7D0">Faol</span>
+            {% else %}<span class="badge" style="background:#FEF2F2;color:#DC2626;border:1px solid #FECACA">Nofaol</span>{% endif %}
+          </td>
+          <td style="text-align:center;white-space:nowrap">
+            <button type="button" class="btn btn-sm btn-outline" onclick="toggleEdit('dp',{{ row.id }})">✎</button>
+            <form method="post" style="display:inline;margin-left:4px"
+                  onsubmit="return confirm('{{ row.code }} ni o\'chirishni tasdiqlaysizmi?')">
+              <input type="hidden" name="action" value="delete">
+              <input type="hidden" name="table" value="departments">
+              <input type="hidden" name="id" value="{{ row.id }}">
+              <button type="submit" class="btn btn-sm btn-danger">✕</button>
+            </form>
+          </td>
+        </tr>
+        <tr id="edit-dp-{{ row.id }}" style="display:none;background:var(--bg)">
+          <td colspan="5" style="padding:14px 16px">
+            <form method="post">
+              <input type="hidden" name="action" value="edit">
+              <input type="hidden" name="table" value="departments">
+              <input type="hidden" name="id" value="{{ row.id }}">
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+                <div class="field" style="margin:0">
+                  <label>Kod *</label>
+                  <input type="text" name="code" value="{{ row.code }}" required style="font-family:monospace;font-weight:700">
+                </div>
+                <div class="field" style="margin:0">
+                  <label>Nomi (uz) *</label>
+                  <input type="text" name="label_uz" value="{{ row.label_uz }}" required>
+                </div>
+                <div class="field" style="margin:0">
+                  <label>Nomi (en)</label>
+                  <input type="text" name="label_en" value="{{ row.label_en or '' }}">
+                </div>
+                <div class="field" style="margin:0">
+                  <label>Nomi (ru)</label>
+                  <input type="text" name="label_ru" value="{{ row.label_ru or '' }}">
+                </div>
+                <div class="field" style="margin:0">
+                  <label>Tartib</label>
+                  <input type="number" name="sort_order" value="{{ row.sort_order }}" min="1" max="9999">
+                </div>
+              </div>
+              <div style="display:flex;gap:12px;margin-bottom:10px;font-size:13px">
+                <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                  <input type="checkbox" name="is_active" {% if row.is_active %}checked{% endif %}> Faol
+                </label>
+              </div>
+              <div style="display:flex;gap:8px">
+                <button type="submit" class="btn btn-primary btn-sm">Saqlash</button>
+                <button type="button" class="btn btn-outline btn-sm" onclick="toggleEdit('dp',{{ row.id }})">Bekor</button>
+              </div>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div style="text-align:center;padding:30px 0;color:var(--text-light)">Hali bo'limlar mavjud emas.</div>
+    {% endif %}
+  </div>
+
+  {# Add department form #}
+  <div class="card" style="margin-bottom:0">
+    <h3 style="font-size:14px">+ Yangi bo'lim</h3>
+    <form method="post">
+      <input type="hidden" name="action" value="add">
+      <input type="hidden" name="table" value="departments">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div class="field" style="margin:0">
+          <label>Kod *</label>
+          <input type="text" name="code" placeholder="arxitektura" required style="font-family:monospace;font-weight:700">
+        </div>
+        <div class="field" style="margin:0">
+          <label>Nomi (uz) *</label>
+          <input type="text" name="label_uz" placeholder="Arxitektura" required>
+        </div>
+        <div class="field" style="margin:0">
+          <label>Nomi (en)</label>
+          <input type="text" name="label_en" placeholder="Architecture">
+        </div>
+        <div class="field" style="margin:0">
+          <label>Nomi (ru)</label>
+          <input type="text" name="label_ru" placeholder="Архитектура">
+        </div>
+        <div class="field" style="margin:0">
+          <label>Tartib</label>
+          <input type="number" name="sort_order" value="100" min="1" max="9999">
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary btn-sm" style="margin-top:12px;width:100%">+ Qo'shish</button>
+    </form>
+  </div>
+</div>
+
+{# ── staff_roles (xodim lavozimlari) ── #}
+<div>
+  <div class="card" style="margin-bottom:16px">
+    <h3>Lavozimlar <span style="font-size:12px;color:var(--text-light);font-weight:400">(staff_roles — xodim lavozimlari)</span></h3>
+    {% if staff_roles %}
+    <table>
+      <thead><tr>
+        <th>Kod</th>
+        <th>Nomi (uz)</th>
+        <th style="text-align:center">Tartib</th>
+        <th style="text-align:center">Holat</th>
+        <th style="text-align:center">Amallar</th>
+      </tr></thead>
+      <tbody>
+      {% for row in staff_roles %}
+        <tr {% if not row.is_active %}style="opacity:0.5"{% endif %}>
+          <td style="font-family:monospace;font-size:12px;font-weight:600">{{ row.code }}</td>
+          <td>
+            {{ row.label_uz }}
+            {% if row.label_en %}<br><span style="font-size:11px;color:var(--text-light)">{{ row.label_en }}</span>{% endif %}
+          </td>
+          <td style="text-align:center;font-size:12px;color:var(--text-light)">{{ row.sort_order }}</td>
+          <td style="text-align:center">
+            {% if row.is_active %}<span class="badge" style="background:#F0FDF4;color:var(--done);border:1px solid #BBF7D0">Faol</span>
+            {% else %}<span class="badge" style="background:#FEF2F2;color:#DC2626;border:1px solid #FECACA">Nofaol</span>{% endif %}
+          </td>
+          <td style="text-align:center;white-space:nowrap">
+            <button type="button" class="btn btn-sm btn-outline" onclick="toggleEdit('sr',{{ row.id }})">✎</button>
+            <form method="post" style="display:inline;margin-left:4px"
+                  onsubmit="return confirm('{{ row.code }} ni o\'chirishni tasdiqlaysizmi?')">
+              <input type="hidden" name="action" value="delete">
+              <input type="hidden" name="table" value="staff_roles">
+              <input type="hidden" name="id" value="{{ row.id }}">
+              <button type="submit" class="btn btn-sm btn-danger">✕</button>
+            </form>
+          </td>
+        </tr>
+        <tr id="edit-sr-{{ row.id }}" style="display:none;background:var(--bg)">
+          <td colspan="5" style="padding:14px 16px">
+            <form method="post">
+              <input type="hidden" name="action" value="edit">
+              <input type="hidden" name="table" value="staff_roles">
+              <input type="hidden" name="id" value="{{ row.id }}">
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+                <div class="field" style="margin:0">
+                  <label>Kod *</label>
+                  <input type="text" name="code" value="{{ row.code }}" required style="font-family:monospace;font-weight:700">
+                </div>
+                <div class="field" style="margin:0">
+                  <label>Nomi (uz) *</label>
+                  <input type="text" name="label_uz" value="{{ row.label_uz }}" required>
+                </div>
+                <div class="field" style="margin:0">
+                  <label>Nomi (en)</label>
+                  <input type="text" name="label_en" value="{{ row.label_en or '' }}">
+                </div>
+                <div class="field" style="margin:0">
+                  <label>Nomi (ru)</label>
+                  <input type="text" name="label_ru" value="{{ row.label_ru or '' }}">
+                </div>
+                <div class="field" style="margin:0">
+                  <label>Tartib</label>
+                  <input type="number" name="sort_order" value="{{ row.sort_order }}" min="1" max="9999">
+                </div>
+              </div>
+              <div style="display:flex;gap:12px;margin-bottom:10px;font-size:13px">
+                <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                  <input type="checkbox" name="is_active" {% if row.is_active %}checked{% endif %}> Faol
+                </label>
+              </div>
+              <div style="display:flex;gap:8px">
+                <button type="submit" class="btn btn-primary btn-sm">Saqlash</button>
+                <button type="button" class="btn btn-outline btn-sm" onclick="toggleEdit('sr',{{ row.id }})">Bekor</button>
+              </div>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div style="text-align:center;padding:30px 0;color:var(--text-light)">Hali lavozimlar mavjud emas.</div>
+    {% endif %}
+  </div>
+
+  {# Add staff_role form #}
+  <div class="card" style="margin-bottom:0">
+    <h3 style="font-size:14px">+ Yangi lavozim</h3>
+    <form method="post">
+      <input type="hidden" name="action" value="add">
+      <input type="hidden" name="table" value="staff_roles">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div class="field" style="margin:0">
+          <label>Kod *</label>
+          <input type="text" name="code" placeholder="architect" required style="font-family:monospace;font-weight:700">
+        </div>
+        <div class="field" style="margin:0">
+          <label>Nomi (uz) *</label>
+          <input type="text" name="label_uz" placeholder="Arxitektor" required>
+        </div>
+        <div class="field" style="margin:0">
+          <label>Nomi (en)</label>
+          <input type="text" name="label_en" placeholder="Architect">
+        </div>
+        <div class="field" style="margin:0">
+          <label>Nomi (ru)</label>
+          <input type="text" name="label_ru" placeholder="Архитектор">
+        </div>
+        <div class="field" style="margin:0">
+          <label>Tartib</label>
+          <input type="number" name="sort_order" value="100" min="1" max="9999">
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary btn-sm" style="margin-top:12px;width:100%">+ Qo'shish</button>
+    </form>
+  </div>
+</div>
+
+</div>{# end grid #}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleEdit(prefix, id) {
+  var row = document.getElementById('edit-' + prefix + '-' + id);
+  if (row) row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
+}
+</script>
+{% endblock %}

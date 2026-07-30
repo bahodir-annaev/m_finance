@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">{{ t('set_title') }}</h1>
+    <p class="page-subtitle">{{ t('set_subtitle') }}</p>
+  </div>
+  <div class="page-actions no-print">
+    <button onclick="window.print()" class="btn btn-outline">Print</button>
+  </div>
+</div>
+<div class="grid-2">
+  <div class="card">
+    <h3>{{ t('set_basic') }}</h3>
+    <form method="POST">
+      <div class="grid-2">
+        {% for s in settings %}
+        <div class="field">
+          <label>{{ s.label or s.key }} ({{ s.unit or '' }})</label>
+          <input name="setting_{{ s.key }}" type="number" step="any" value="{{ s.value }}">
+        </div>
+        {% endfor %}
+      </div>
+      <button type="submit" class="btn btn-primary no-print" style="margin-top:12px">{{ t('set_save') }}</button>
+    </form>
+  </div>
+  <div class="card">
+    <h3>{{ t('set_rates_history') }}</h3>
+    <form method="POST" action="/settings/rates" style="margin-bottom:16px">
+      <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+        <div class="field" style="margin:0">
+          <label>{{ t('th_date') }}</label>
+          <input id="rate-date" name="date" type="date" required value="{{ today }}">
+        </div>
+        <div class="field" style="margin:0">
+          <label>{{ t('th_rate') }} (UZS)</label>
+          <input id="rate-value" name="rate" type="number" step="any" required placeholder="0.00">
+        </div>
+        <button type="button" class="btn btn-outline no-print" onclick="fetchCBURate()">CBdan kurs yuklash</button>
+        <button type="submit" class="btn btn-primary no-print">{{ t('set_save') }}</button>
+      </div>
+      <p id="cbu-status" style="margin:6px 0 0;font-size:0.85em;color:var(--text-muted)"></p>
+    </form>
+    <div style="overflow-y:auto;max-height:460px;border:1px solid var(--border);border-radius:6px">
+      <table style="margin:0">
+        <thead style="position:sticky;top:0;background:var(--bg-card,#fff);z-index:1">
+          <tr><th>{{ t('th_date') }}</th><th>{{ t('th_rate') }}</th></tr>
+        </thead>
+        <tbody id="rates-tbody">
+          {% for r in rates %}
+          <tr><td>{{ r.date }}</td><td class="num">{{ fmt(r.rate) }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;margin-top:10px;font-size:0.88em;color:var(--text-muted)">
+      <button id="rates-prev" class="btn btn-outline" style="padding:4px 12px;font-size:0.85em">&laquo; Oldingi</button>
+      <span id="rates-page-info" style="flex:1;text-align:center"></span>
+      <button id="rates-next" class="btn btn-outline" style="padding:4px 12px;font-size:0.85em">Keyingi &raquo;</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function fetchCBURate() {
+  const dateEl = document.getElementById('rate-date');
+  const rateEl = document.getElementById('rate-value');
+  const statusEl = document.getElementById('cbu-status');
+  const date = dateEl.value;
+  if (!date) { statusEl.textContent = 'Avval sanani tanlang.'; return; }
+  statusEl.textContent = 'Yuklanmoqda...';
+  fetch('/settings/fetch-rate?date=' + date)
+    .then(r => r.json())
+    .then(data => {
+      if (data.error) { statusEl.textContent = 'Xato: ' + data.error; return; }
+      rateEl.value = data.rate;
+      statusEl.textContent = date + ' uchun kurs: ' + data.rate + ' UZS';
+    })
+    .catch(() => { statusEl.textContent = 'Tarmoq xatosi. Qayta urinib koring.'; });
+}
+
+(function() {
+  var PAGE_SIZE = 20;
+  var page = 0;
+  var rows = Array.from(document.querySelectorAll('#rates-tbody tr'));
+  var total = rows.length;
+  var pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  function render() {
+    rows.forEach(function(r, i) {
+      r.style.display = (i >= page * PAGE_SIZE && i < (page + 1) * PAGE_SIZE) ? '' : 'none';
+    });
+    document.getElementById('rates-page-info').textContent =
+      pages > 1 ? (page + 1) + ' / ' + pages + '  (' + total + ' ta yozuv)' : total + ' ta yozuv';
+    document.getElementById('rates-prev').disabled = page === 0;
+    document.getElementById('rates-next').disabled = page >= pages - 1;
+  }
+
+  document.getElementById('rates-prev').addEventListener('click', function() { page--; render(); });
+  document.getElementById('rates-next').addEventListener('click', function() { page++; render(); });
+
+  render();
+})();
+</script>
+{% endblock %}

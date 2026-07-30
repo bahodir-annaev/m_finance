@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">{{ t('budget_title') }}</h1>
+    <p class="page-subtitle">{{ t('budget_subtitle') }}</p>
+  </div>
+  <div class="page-actions no-print">
+    <a href="/api/export/xlsx?sheet=budget" class="btn btn-outline">Excel</a>
+    <button onclick="window.print()" class="btn btn-outline">Print</button>
+  </div>
+</div>
+<div class="card" style="overflow-x:auto">
+  <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap" class="no-print">
+    <input type="text" id="bSearch" placeholder="Qidirish..." oninput="filterB()" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;width:200px;background:var(--surface)">
+    <select id="bFPL" onchange="filterB()" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:var(--surface)">
+      <option value="">Holat - JAMI</option>
+      <option value="profit">Byudjet ichida</option>
+      <option value="loss">Oshgan</option>
+      <option value="noplan">Reja yo'q</option>
+    </select>
+    <button onclick="document.getElementById('bSearch').value='';document.getElementById('bFPL').value='';filterB()" class="btn btn-outline btn-sm">Reset</button>
+  </div>
+  <table id="bTable" style="font-size:12px">
+    <thead>
+      <tr>
+        <th rowspan="2" style="vertical-align:bottom">Proekt</th>
+        <th colspan="5" style="background:#005C4A;text-align:center">PLAN (reja)</th>
+        <th colspan="5" style="background:#00382F;text-align:center">FAKT (haqiqiy)</th>
+        <th colspan="4" style="background:#001F1A;text-align:center">FARQ</th>
+        <th rowspan="2" style="vertical-align:bottom">Holat</th>
+      </tr>
+      <tr>
+        <th style="background:#005C4A">Ishchi</th><th style="background:#005C4A">Soat</th>
+        <th style="background:#005C4A">MIZAN (UZS)</th><th style="background:#005C4A">Outsrc</th><th style="background:#005C4A">Jami</th>
+        <th>Ishchi</th><th>Soat</th><th>MIZAN (UZS)</th><th>Outsrc</th><th>Jami</th>
+        <th style="background:#001F1A">Soat</th><th style="background:#001F1A">MIZAN</th>
+        <th style="background:#001F1A">Jami</th><th style="background:#001F1A">%</th>
+      </tr>
+    </thead>
+    <tbody id="bBody">
+      {% for row in rows %}
+      <tr data-pl="{{ row.pl_class }}">
+        <td><b>{{ row.project_name }}</b></td>
+        {% if row.has_plan %}
+        <td class="num">{{ row.p_workers }}</td><td class="num">{{ fmt(row.p_hrs, 0) }}</td>
+        <td class="num">{{ fmt(row.p_cost) }}</td><td class="num">{{ fmt(row.p_out) }}</td><td class="num">{{ fmt(row.p_total) }}</td>
+        {% else %}
+        <td class="num">&mdash;</td><td class="num">{{ fmt(row.p_hrs, 0) if row.p_hrs else '—' }}</td>
+        <td class="num">&mdash;</td><td class="num">&mdash;</td><td class="num">&mdash;</td>
+        {% endif %}
+        <td class="num">{{ row.f_workers }}</td><td class="num">{{ fmt(row.f_hrs, 0) }}</td>
+        <td class="num">{{ fmt(row.f_cost) }}</td><td class="num">{{ fmt(row.f_out) }}</td><td class="num">{{ fmt(row.f_total) }}</td>
+        {% if row.has_plan %}
+        <td class="num">{{ fmt(row.d_hrs, 0) }}</td><td class="num">{{ fmt(row.d_cost) }}</td>
+        <td class="num">{{ fmt(row.d_total) }}</td><td class="num">{{ fmt(row.d_pct, 1) }}%</td>
+        <td class="{{ row.b_class }}" style="font-weight:600">{{ row.b_status }}</td>
+        {% else %}
+        <td class="num">&mdash;</td><td class="num">&mdash;</td>
+        <td class="num">&mdash;</td><td class="num">&mdash;</td>
+        <td style="font-weight:600;color:var(--text-light)">{{ row.b_status }} <a href="/pricing" style="font-size:11px">&rarr;</a></td>
+        {% endif %}
+      </tr>
+      {% endfor %}
+      <tr style="font-weight:700;background:var(--accent-bg)" id="bTotalRow">
+        <td>JAMI</td>
+        <td class="num"></td><td class="num">{{ fmt(totals.p_hrs, 0) }}</td><td class="num">{{ fmt(totals.p_cost) }}</td>
+        <td class="num">{{ fmt(totals.p_out) }}</td><td class="num">{{ fmt(totals.p_total) }}</td>
+        <td class="num"></td><td class="num">{{ fmt(totals.f_hrs, 0) }}</td><td class="num">{{ fmt(totals.f_cost) }}</td>
+        <td class="num">{{ fmt(totals.f_out) }}</td><td class="num">{{ fmt(totals.f_total) }}</td>
+        <td class="num"></td>
+        <td class="num"></td>
+        <td class="num {{ total_margin_class }}">{{ fmt(t_d_total) }}</td>
+        <td class="num {{ total_margin_class }}">{{ fmt(t_d_pct, 1) }}%</td>
+        <td></td>
+      </tr>
+    </tbody>
+  </table>
+  <div id="bCount" style="margin-top:10px;font-size:12px;color:var(--text-light)"></div>
+</div>
+<script>
+var _sd = {};
+function sortT(tid, col) {
+  var tb = document.getElementById(tid).querySelector('tbody');
+  var rs = Array.from(tb.querySelectorAll('tr[data-pl]'));
+  if (!rs.length) return;
+  var d = _sd[tid+'_'+col] === 'asc' ? 'desc' : 'asc';
+  _sd[tid+'_'+col] = d;
+  rs.sort(function(a, b) {
+    var av = a.cells[col].textContent.trim(), bv = b.cells[col].textContent.trim();
+    var an = parseFloat(av.replace(/[,%$]/g, '')), bn = parseFloat(bv.replace(/[,%$]/g, ''));
+    if (!isNaN(an) && !isNaN(bn)) return d === 'asc' ? an - bn : bn - an;
+    return d === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+  });
+  var totalRow = document.getElementById('bTotalRow');
+  rs.forEach(function(r) { tb.insertBefore(r, totalRow); });
+}
+function filterB() {
+  var q = document.getElementById('bSearch').value.toLowerCase();
+  var pl = document.getElementById('bFPL').value;
+  var rs = document.querySelectorAll('#bBody tr[data-pl]');
+  var n = 0;
+  rs.forEach(function(r) {
+    var ok = (!q || r.textContent.toLowerCase().includes(q)) && (!pl || r.dataset.pl === pl);
+    r.style.display = ok ? '' : 'none';
+    if (ok) n++;
+  });
+  document.getElementById('bCount').textContent = n + ' / ' + rs.length;
+}
+filterB();
+</script>
+{% endblock %}

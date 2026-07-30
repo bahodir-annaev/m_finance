@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% block content %}
+{% set can_edit = current_user.role in ('manager', 'admin') %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">{{ t('ext_title') }}</h1>
+    <p class="page-subtitle">{{ t('ext_subtitle') }}</p>
+  </div>
+  <div class="page-actions no-print">
+    <a href="/api/export/xlsx" class="btn btn-outline">Excel</a>
+    <button onclick="window.print()" class="btn btn-outline">Print</button>
+  </div>
+</div>
+
+<div class="stats">
+  <div class="stat stat-green"><div class="label">{{ t('th_income') }}</div><div class="value">{{ fmt(total_income) }}</div><div class="sub">UZS</div></div>
+  <div class="stat stat-red"><div class="label">{{ t('th_outsourcing') }} + Material</div><div class="value">{{ fmt(total_expense) }}</div><div class="sub">UZS</div></div>
+  <div class="stat"><div class="label">{{ t('ext_receivable') }}</div><div class="value">{{ fmt(total_receivable) }}</div><div class="sub">UZS</div></div>
+  <div class="stat"><div class="label">{{ t('ext_payable') }}</div><div class="value">{{ fmt(total_payable) }}</div><div class="sub">UZS</div></div>
+  <div class="stat"><div class="label">{{ t('th_total') }}</div><div class="value">{{ total_count }}</div><div class="sub">tranzaksiya</div></div>
+</div>
+
+{% set filter_base = '/external?search=' + f_search|urlencode + '&project=' + f_project|urlencode + '&tx_type=' + f_tx_type|urlencode + '&status=' + f_status|urlencode + '&date_from=' + f_date_from|urlencode + '&date_to=' + f_date_to|urlencode + '&per_page=' + per_page|string %}
+{% set page_base = filter_base + '&sort=' + f_sort + '&dir=' + f_dir %}
+{% macro sort_th(col, label) %}
+  {% set ndir = 'desc' if (f_sort == col and f_dir == 'asc') else 'asc' %}
+  <th style="cursor:pointer"><a href="{{ filter_base }}&sort={{ col }}&dir={{ ndir }}&page=1" style="color:inherit;text-decoration:none">{{ label }}
+    <span class="sort-icon">{% if f_sort == col %}{{ '▴' if f_dir == 'asc' else '▾' }}{% else %}&#x25B4;&#x25BE;{% endif %}</span></a></th>
+{% endmacro %}
+
+<div class="card">
+  <form method="get" action="/external" id="extFilterForm" class="no-print">
+    <div class="filter-bar">
+      <input type="hidden" name="page" value="1">
+      <input type="text" name="search" value="{{ f_search }}" placeholder="Qidirish..."
+             class="filter-control filter-search">
+      <select name="project" onchange="this.form.submit()" class="filter-control">
+        <option value="">{{ t('th_project') }} - {{ t('th_total') }}</option>
+        {% for p in proj_filter_opts %}
+          <option value="{{ p }}"{% if p == f_project %} selected{% endif %}>{{ p }}</option>
+        {% endfor %}
+      </select>
+      <select name="tx_type" onchange="this.form.submit()" class="filter-control">
+        <option value="">{{ t('th_category') }} - {{ t('th_total') }}</option>
+        {% for tp in type_filter_opts %}
+          <option value="{{ tp }}"{% if tp == f_tx_type %} selected{% endif %}>{{ tp }}</option>
+        {% endfor %}
+      </select>
+      <select name="status" onchange="this.form.submit()" class="filter-control">
+        <option value="">{{ t('th_status') }} - {{ t('th_total') }}</option>
+        {% for s in status_filter_opts %}
+          <option value="{{ s }}"{% if s == f_status %} selected{% endif %}>{{ t('status_' + s) if s in ('paid','pending','partial') else s }}</option>
+        {% endfor %}
+      </select>
+      <input type="date" name="date_from" value="{{ f_date_from }}" title="{{ t('flt_from') }}"
+             placeholder="{{ t('flt_from') }}" class="filter-control">
+      <input type="date" name="date_to" value="{{ f_date_to }}" title="{{ t('flt_to') }}"
+             placeholder="{{ t('flt_to') }}" class="filter-control">
+      <select name="per_page" onchange="this.form.submit()" class="filter-control">
+        {% for n in [25, 50, 100] %}
+          <option value="{{ n }}"{% if n == per_page %} selected{% endif %}>{{ n }} {{ t('pg_per_page') }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit" class="btn btn-primary btn-sm">Qidirish</button>
+      <a href="/external" class="btn btn-outline btn-sm">Reset</a>
+    </div>
+  </form>
+
+  <table id="extTable">
+    <thead><tr>
+      {{ sort_th('date', t('th_date')) }}
+      {{ sort_th('project', t('th_project')) }}
+      <th>{{ t('th_description') }}</th>
+      {{ sort_th('type', t('th_type')) }}
+      {{ sort_th('paid', t('th_paid')) }}
+      <th>{{ t('th_notes') }}</th>
+    </tr></thead>
+    <tbody id="extBody">
+      {% if txs %}
+        {% for tx in txs %}
+        {% set type_color = 'color:var(--done);font-weight:600' if tx.tx_type in income_tx_types else 'color:var(--red)' %}
+        {% set tx_unresolved = (tx.project_id is none or tx.counterparty_id is none) and (tx.id in unresolved_ids) %}
+        <tr data-project="{{ tx.project_name or '-' }}" data-type="{{ tx.tx_type }}"
+            {% if can_edit %}class="tx-row" style="cursor:pointer" onclick="openTxModal(this)"{% endif %}
+            data-id="{{ tx.id }}" data-direction="{{ tx.direction }}" data-tx-type="{{ tx.tx_type or '' }}"
+            data-date="{{ tx.date or '' }}" data-amount="{{ tx.amount or 0 }}" data-paid="{{ tx.paid or 0 }}"
+            data-currency="{{ tx.currency or 'UZS' }}" data-description="{{ tx.description or '' }}"
+            data-notes="{{ tx.notes or '' }}" data-client="{{ tx.client or '' }}" data-paid-to="{{ tx.paid_to or '' }}"
+            data-responsible-name="{{ tx.responsible or '' }}" data-status="{{ tx.status or '' }}"
+            data-payment-type="{{ tx.payment_type or '' }}" data-doc-id="{{ tx.doc_id or '' }}"
+            data-deadline="{{ tx.deadline or '' }}" data-project-id="{{ tx.project_id or '' }}"
+            data-phase-id="{{ tx.phase_id or '' }}"
+            data-unresolved="{{ '1' if tx_unresolved else '0' }}">
+          <td>{{ tx.date }}</td>
+          <td>{{ tx.project_name or '-' }}</td>
+          <td>{{ tx.description or '-' }}</td>
+          <td style="{{ type_color }}">{{ tx.tx_type }}</td>
+          <td class="num">{{ fmt(tx.paid) }}</td>
+          <td class="notes-cell">{{ tx.notes or '-' }}</td>
+        </tr>
+        {% endfor %}
+      {% else %}
+        <tr><td colspan="6" class="empty-state" style="padding:40px">{{ t('ext_empty') }}</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+
+  <div style="display:flex;align-items:center;gap:10px;margin-top:12px" class="no-print">
+    {% if cur_page > 1 %}
+      <a href="{{ page_base }}&page={{ cur_page - 1 }}" class="btn btn-outline btn-sm">&laquo; {{ t('pg_prev') }}</a>
+    {% else %}
+      <button class="btn btn-outline btn-sm" disabled>&laquo; {{ t('pg_prev') }}</button>
+    {% endif %}
+    <span style="flex:1;text-align:center;font-size:12px;color:var(--text-light)">
+      {{ cur_page }} / {{ total_pages }} &nbsp;({{ total_count }} ta)
+    </span>
+    {% if cur_page < total_pages %}
+      <a href="{{ page_base }}&page={{ cur_page + 1 }}" class="btn btn-outline btn-sm">{{ t('pg_next') }} &raquo;</a>
+    {% else %}
+      <button class="btn btn-outline btn-sm" disabled>{{ t('pg_next') }} &raquo;</button>
+    {% endif %}
+  </div>
+</div>
+
+{% if can_edit %}{% include '_tx_modal.html' %}{% endif %}
+{% endblock %}

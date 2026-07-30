@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">{{ t('kpi_title') }}</h1>
+    <p class="page-subtitle">{{ t('kpi_subtitle') }}</p>
+  </div>
+  <div class="page-actions no-print">
+    <a href="/api/export/xlsx?sheet=kpi" class="btn btn-outline">Excel</a>
+    <button onclick="window.print()" class="btn btn-outline">Print</button>
+  </div>
+</div>
+<div class="card">
+  <table>
+    <tr>
+      <th>{{ t('th_name') }}</th><th>{{ t('th_position') }}</th><th>{{ t('th_department') }}</th>
+      <th>{{ t('th_projects_count') }}</th><th>{{ t('th_hours') }}</th>
+      <th>{{ t('th_cost_rate') }}</th><th>{{ t('th_billing_rate') }}</th>
+      <th>{{ t('th_cost_value') }}</th><th>{{ t('th_revenue_value') }}</th>
+      <th>USD</th><th>{{ t('th_utilization') }}</th>
+    </tr>
+    {% for k in kpi %}
+    {% set util_pct = k.utilization * 100 %}
+    {% set bar_color = 'var(--green)' if util_pct > 60 else ('var(--amber)' if util_pct > 35 else 'var(--red)') %}
+    <tr>
+      <td>{{ k.name }}</td><td>{{ k.role }}</td><td>{{ k.department }}</td>
+      <td class="num">{{ k.projects }}</td>
+      <td class="num">{{ fmt(k.hours, 1) }}</td>
+      <td class="num">{{ fmt(k.cost_rate) }}</td>
+      <td class="num" style="color:var(--green)">{{ fmt(k.billing_rate) }}</td>
+      <td class="num">{{ fmt(k.cost_value) }}</td>
+      <td class="num" style="color:var(--green)">{{ fmt(k.revenue_value) }}</td>
+      <td class="num">${{ fmt(k.revenue_usd, 0) }}</td>
+      <td>
+        <div class="progress-bar">
+          <div class="progress-fill" style="width:{{ [util_pct, 100]|min|round|int }}%;background:{{ bar_color }}"></div>
+        </div>
+        <span style="font-size:11px">{{ '%.1f'|format(util_pct) }}%</span>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+{% endblock %}

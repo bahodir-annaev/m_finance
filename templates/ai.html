@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">{{ t('ai_title') }}</h1>
+    <p class="page-subtitle">{{ t('ai_subtitle') }}</p>
+  </div>
+  <div class="page-actions no-print">
+    <span style="padding:6px 12px;border-radius:14px;font-size:12px;font-weight:600;
+      {% if ai_ok %}background:rgba(76,175,80,0.18);color:#2e7d32{% else %}background:rgba(244,67,54,0.15);color:#c62828{% endif %}">
+      {% if ai_ok %}● {{ t('ai_status_ready') }}{% else %}○ {{ t('ai_status_down') }}{% endif %}
+    </span>
+  </div>
+</div>
+
+<p style="font-size:12px;color:#888;margin:-6px 0 14px">
+  🔒 {{ t('ai_offline_note') }} <span style="color:#aaa">({{ ai_model }} @ {{ ai_url }})</span>
+</p>
+
+{% if not ai_ok %}
+<div style="background:#fff4e5;border:1px solid #ffcc80;border-radius:10px;padding:14px 18px;margin-bottom:16px;font-size:13px;color:#7a4f01">
+  <strong>{{ t('ai_status_down') }}:</strong> {{ ai_detail }}<br>
+  <span style="color:#9a7330">Ollama: <code>ollama serve</code> &nbsp;|&nbsp; <code>ollama pull {{ ai_model }}</code></span>
+</div>
+{% endif %}
+
+<div class="page-actions no-print" style="margin-bottom:14px;gap:8px;display:flex">
+  <button class="btn btn-outline" onclick="quickTask('/ai/summary')">{{ t('ai_summary_btn') }}</button>
+  <button class="btn btn-outline" onclick="quickTask('/ai/anomalies')">{{ t('ai_anomalies_btn') }}</button>
+</div>
+
+<div id="chat" style="border:1px solid #e6e6e6;border-radius:12px;padding:16px;min-height:240px;max-height:520px;overflow-y:auto;background:#fafafa;margin-bottom:12px;"></div>
+
+<form id="ai-form" style="display:flex;gap:8px" onsubmit="return sendQ(event)">
+  <input id="ai-q" type="text" placeholder="{{ t('ai_ask_placeholder') }}" autocomplete="off"
+    style="flex:1;padding:10px 14px;border:1px solid #ddd;border-radius:10px;font-size:14px"
+    {% if not ai_ok %}disabled{% endif %}>
+  <button type="submit" class="btn" {% if not ai_ok %}disabled{% endif %}>{{ t('ai_send') }}</button>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const chat = document.getElementById('chat');
+const T = { thinking: {{ t('ai_thinking')|tojson }}, error: {{ t('ai_error')|tojson }} };
+
+function bubble(text, who) {
+  const d = document.createElement('div');
+  d.style.cssText = 'margin:8px 0;padding:10px 14px;border-radius:12px;max-width:85%;white-space:pre-wrap;font-size:14px;line-height:1.5;'
+    + (who === 'user'
+        ? 'background:#1a3a5c;color:#fff;margin-left:auto;'
+        : 'background:#fff;border:1px solid #e6e6e6;color:#222;');
+  d.textContent = text;
+  chat.appendChild(d);
+  chat.scrollTop = chat.scrollHeight;
+  return d;
+}
+
+async function post(url, body) {
+  const pending = bubble(T.thinking, 'ai');
+  pending.style.opacity = 0.6;
+  try {
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body || {}),
+    });
+    const data = await r.json();
+    pending.style.opacity = 1;
+    pending.textContent = data.answer || (T.error + ': ' + (data.error || r.status));
+  } catch (e) {
+    pending.style.opacity = 1;
+    pending.textContent = T.error + ': ' + e;
+  }
+}
+
+function sendQ(ev) {
+  ev.preventDefault();
+  const inp = document.getElementById('ai-q');
+  const q = inp.value.trim();
+  if (!q) return false;
+  bubble(q, 'user');
+  inp.value = '';
+  post('/ai/chat', { question: q });
+  return false;
+}
+
+function quickTask(url) { post(url, {}); }
+</script>
+{% endblock %}

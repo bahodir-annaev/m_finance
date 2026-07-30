@@ -1,0 +1,296 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Kontragentlar</h1>
+    <p class="page-subtitle">Mijozlar · Ta'minotchilar · Sheriklar · Taxalluslar</p>
+  </div>
+</div>
+
+{% if msg %}{{ msg|safe }}{% endif %}
+
+{% set active_list = cp_list|selectattr('is_active','eq',1)|list %}
+{% set client_list = cp_list|selectattr('counterparty_type','eq','client')|list %}
+{% set vendor_list = cp_list|selectattr('counterparty_type','eq','vendor')|list %}
+{% set alias_total = cp_list|sum(attribute='aliases'|length) %}
+
+<div class="stats">
+  <div class="stat">
+    <div class="label">Jami kontragentlar</div>
+    <div class="value">{{ cp_list|length }}</div>
+    <div class="sub">{{ active_list|length }} faol</div>
+  </div>
+  <div class="stat">
+    <div class="label">Mijozlar</div>
+    <div class="value" style="color:var(--blue)">{{ client_list|length }}</div>
+    <div class="sub">client</div>
+  </div>
+  <div class="stat">
+    <div class="label">Ta'minotchilar</div>
+    <div class="value" style="color:var(--amber)">{{ vendor_list|length }}</div>
+    <div class="sub">vendor</div>
+  </div>
+  <div class="stat">
+    <div class="label">Taxalluslar</div>
+    {%- set ns = namespace(total=0) -%}
+    {%- for cp in cp_list -%}{%- set ns.total = ns.total + cp.aliases|length -%}{%- endfor -%}
+    <div class="value">{{ ns.total }}</div>
+    <div class="sub">alias yozuvlari</div>
+  </div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 320px;gap:20px;align-items:start">
+
+{# ── Counterparty table ── #}
+<div class="card" style="margin-bottom:0">
+  <h3>Kontragentlar ro'yxati</h3>
+  {% if cp_list %}
+  <table>
+    <thead><tr>
+      <th>Nomi</th>
+      <th>Turi</th>
+      <th>INN/STIR</th>
+      <th>Valyuta</th>
+      <th style="text-align:center">Holat</th>
+      <th style="text-align:center">Amallar</th>
+    </tr></thead>
+    <tbody>
+    {% for cp in cp_list %}
+
+      {% if cp.counterparty_type == 'client' %}
+        {% set type_style = 'background:#EFF6FF;color:var(--blue);border:1px solid #BFDBFE' %}
+        {% set type_label = 'Mijoz' %}
+      {% elif cp.counterparty_type == 'vendor' %}
+        {% set type_style = 'background:#FFFBEB;color:#92400E;border:1px solid #FDE68A' %}
+        {% set type_label = "Ta'minotchi" %}
+      {% elif cp.counterparty_type == 'partner' %}
+        {% set type_style = 'background:#F0FDF4;color:var(--done);border:1px solid #BBF7D0' %}
+        {% set type_label = 'Sherik' %}
+      {% elif cp.counterparty_type == 'employee' %}
+        {% set type_style = 'background:#FDF4FF;color:#7E22CE;border:1px solid #E9D5FF' %}
+        {% set type_label = 'Xodim' %}
+      {% else %}
+        {% set type_style = 'background:var(--bg);color:var(--text-light);border:1px solid var(--border)' %}
+        {% set type_label = 'Boshqa' %}
+      {% endif %}
+
+      <tr {% if not cp.is_active %}style="opacity:0.5"{% endif %}>
+        <td>
+          <b>{{ cp.name }}</b>
+          {% if cp.legal_name and cp.legal_name != cp.name %}
+            <br><span style="font-size:11px;color:var(--text-light)">{{ cp.legal_name }}</span>
+          {% endif %}
+          {% if cp.country %}
+            <span style="font-size:11px;color:var(--text-light);margin-left:4px">🌐 {{ cp.country }}</span>
+          {% endif %}
+          {% if cp.notes %}
+            <br><span style="font-size:11px;color:var(--text-light);font-style:italic">{{ cp.notes }}</span>
+          {% endif %}
+        </td>
+        <td><span class="badge" style="{{ type_style }}">{{ type_label }}</span></td>
+        <td style="font-family:monospace;font-size:12px">{{ cp.tax_id or '—' }}</td>
+        <td style="font-weight:600;font-size:12px">{{ cp.default_currency }}</td>
+        <td style="text-align:center">
+          {% if cp.is_active %}
+            <span class="badge" style="background:#F0FDF4;color:var(--done);border:1px solid #BBF7D0">Faol</span>
+          {% else %}
+            <span class="badge" style="background:#FEF2F2;color:#DC2626;border:1px solid #FECACA">Nofaol</span>
+          {% endif %}
+        </td>
+        <td style="text-align:center;white-space:nowrap">
+          <button type="button" class="btn btn-sm btn-outline"
+                  onclick="toggleCpAliases({{ cp.id }})"
+                  title="Taxalluslarni ko'rsatish">
+            🏷 {{ cp.aliases|length }}
+          </button>
+          <button type="button" class="btn btn-sm btn-outline"
+                  onclick="toggleCpEdit({{ cp.id }})"
+                  style="margin-left:4px">✎ Tahrir</button>
+          <form method="post" style="display:inline;margin-left:4px"
+                onsubmit="return confirm('{{ cp.name }} ni o\'chirishni tasdiqlaysizmi?')">
+            <input type="hidden" name="action" value="delete_cp">
+            <input type="hidden" name="id" value="{{ cp.id }}">
+            <button type="submit" class="btn btn-sm btn-danger">✕</button>
+          </form>
+        </td>
+      </tr>
+
+      {# Aliases sub-panel #}
+      <tr id="aliases-{{ cp.id }}" style="display:none;background:var(--bg)">
+        <td colspan="6" style="padding:12px 20px">
+          <div style="font-size:12px;font-weight:600;color:var(--text-light);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">
+            Taxalluslar — {{ cp.name }}
+          </div>
+          {% if cp.aliases %}
+          <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">
+            {% for a in cp.aliases %}
+            <span style="display:inline-flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:3px 10px;font-size:12px">
+              <span style="font-weight:600">{{ a.alias }}</span>
+              {% if a.source %}<span style="color:var(--text-light);font-size:10px">{{ a.source }}</span>{% endif %}
+              <form method="post" style="display:inline"
+                    onsubmit="return confirm('{{ a.alias }} taxallusini o\'chirishni tasdiqlaysizmi?')">
+                <input type="hidden" name="action" value="delete_alias">
+                <input type="hidden" name="alias_id" value="{{ a.id }}">
+                <button type="submit" style="background:none;border:none;cursor:pointer;color:#DC2626;font-size:12px;padding:0 2px;line-height:1">✕</button>
+              </form>
+            </span>
+            {% endfor %}
+          </div>
+          {% else %}
+          <p style="font-size:12px;color:var(--text-light);margin:0 0 10px">Taxalluslar yo'q.</p>
+          {% endif %}
+          <form method="post" style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+            <input type="hidden" name="action" value="add_alias">
+            <input type="hidden" name="counterparty_id" value="{{ cp.id }}">
+            <div class="field" style="margin:0">
+              <label style="font-size:11px">Taxallus matni</label>
+              <input type="text" name="alias" placeholder="masalan: Acme LLC" required
+                     style="padding:6px 10px;font-size:13px;width:200px">
+            </div>
+            <div class="field" style="margin:0">
+              <label style="font-size:11px">Manba</label>
+              <input type="text" name="source" placeholder="manual"
+                     style="padding:6px 10px;font-size:13px;width:100px">
+            </div>
+            <button type="submit" class="btn btn-sm btn-primary" style="margin-bottom:1px">+ Qo'shish</button>
+          </form>
+        </td>
+      </tr>
+
+      {# Inline edit row #}
+      <tr id="edit-cp-{{ cp.id }}" style="display:none;background:var(--bg)">
+        <td colspan="6" style="padding:16px 20px">
+          <form method="post">
+            <input type="hidden" name="action" value="edit_cp">
+            <input type="hidden" name="id" value="{{ cp.id }}">
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:12px">
+              <div class="field" style="margin:0">
+                <label>Nomi *</label>
+                <input type="text" name="name" value="{{ cp.name }}" required>
+              </div>
+              <div class="field" style="margin:0">
+                <label>Huquqiy nomi</label>
+                <input type="text" name="legal_name" value="{{ cp.legal_name or '' }}">
+              </div>
+              <div class="field" style="margin:0">
+                <label>INN/STIR</label>
+                <input type="text" name="tax_id" value="{{ cp.tax_id or '' }}"
+                       style="font-family:monospace">
+              </div>
+              <div class="field" style="margin:0">
+                <label>Turi</label>
+                <select name="counterparty_type">
+                  <option value="client"   {% if cp.counterparty_type=='client'   %}selected{% endif %}>Mijoz</option>
+                  <option value="vendor"   {% if cp.counterparty_type=='vendor'   %}selected{% endif %}>Ta'minotchi</option>
+                  <option value="partner"  {% if cp.counterparty_type=='partner'  %}selected{% endif %}>Sherik</option>
+                  <option value="employee" {% if cp.counterparty_type=='employee' %}selected{% endif %}>Xodim</option>
+                  <option value="other"    {% if cp.counterparty_type=='other'    %}selected{% endif %}>Boshqa</option>
+                </select>
+              </div>
+              <div class="field" style="margin:0">
+                <label>Mamlakat</label>
+                <input type="text" name="country" value="{{ cp.country or '' }}" placeholder="UZ">
+              </div>
+              <div class="field" style="margin:0">
+                <label>Valyuta</label>
+                <select name="default_currency">
+                  <option value="UZS" {% if cp.default_currency=='UZS' %}selected{% endif %}>UZS</option>
+                  <option value="USD" {% if cp.default_currency=='USD' %}selected{% endif %}>USD</option>
+                  <option value="EUR" {% if cp.default_currency=='EUR' %}selected{% endif %}>EUR</option>
+                </select>
+              </div>
+              <div class="field" style="margin:0;grid-column:span 2">
+                <label>Izoh</label>
+                <input type="text" name="notes" value="{{ cp.notes or '' }}">
+              </div>
+              <div class="field" style="margin:0;display:flex;align-items:flex-end">
+                <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;padding-bottom:4px">
+                  <input type="checkbox" name="is_active" {% if cp.is_active %}checked{% endif %}> Faol
+                </label>
+              </div>
+            </div>
+            <div style="display:flex;gap:8px">
+              <button type="submit" class="btn btn-primary btn-sm">Saqlash</button>
+              <button type="button" class="btn btn-outline btn-sm" onclick="toggleCpEdit({{ cp.id }})">Bekor qilish</button>
+            </div>
+          </form>
+        </td>
+      </tr>
+
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div style="text-align:center;padding:40px 0;color:var(--text-light)">
+    <div style="font-size:32px;margin-bottom:12px">🏢</div>
+    <div>Hali kontragentlar mavjud emas.</div>
+    <div style="font-size:12px;margin-top:6px">O'ng tarafdagi formadan birinchi kontragentni qo'shing.</div>
+  </div>
+  {% endif %}
+</div>
+
+{# ── Add form (right column) ── #}
+<div class="card" style="margin-bottom:0">
+  <h3>Yangi kontragent</h3>
+  <form method="post">
+    <input type="hidden" name="action" value="add_cp">
+    <div class="field">
+      <label>Nomi *</label>
+      <input type="text" name="name" placeholder="Acme Architects" required>
+    </div>
+    <div class="field">
+      <label>Huquqiy nomi</label>
+      <input type="text" name="legal_name" placeholder='Acme Architects LLC'>
+    </div>
+    <div class="field">
+      <label>INN/STIR</label>
+      <input type="text" name="tax_id" placeholder="123456789"
+             style="font-family:monospace">
+    </div>
+    <div class="field">
+      <label>Turi</label>
+      <select name="counterparty_type">
+        <option value="client">Mijoz</option>
+        <option value="vendor">Ta'minotchi</option>
+        <option value="partner">Sherik</option>
+        <option value="employee">Xodim</option>
+        <option value="other">Boshqa</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Mamlakat</label>
+      <input type="text" name="country" placeholder="UZ">
+    </div>
+    <div class="field">
+      <label>Asosiy valyuta</label>
+      <select name="default_currency">
+        <option value="UZS">UZS</option>
+        <option value="USD">USD</option>
+        <option value="EUR">EUR</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Izoh (ixtiyoriy)</label>
+      <input type="text" name="notes" placeholder="">
+    </div>
+    <button type="submit" class="btn btn-primary" style="width:100%">+ Kontragent qo'shish</button>
+  </form>
+</div>
+
+</div>{# end grid #}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleCpEdit(id) {
+  const row = document.getElementById('edit-cp-' + id);
+  if (row) row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
+}
+function toggleCpAliases(id) {
+  const row = document.getElementById('aliases-' + id);
+  if (row) row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
+}
+</script>
+{% endblock %}

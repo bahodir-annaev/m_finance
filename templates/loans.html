@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">{{ t('loans_title') }}</h1>
+    <p class="page-subtitle">{{ t('loans_subtitle') }}</p>
+  </div>
+  <div class="page-actions no-print">
+    <button onclick="window.print()" class="btn btn-outline">Print</button>
+  </div>
+</div>
+
+<div class="stats">
+  <div class="stat stat-red">
+    <div class="label">{{ t('loans_taken_label') }}</div>
+    <div class="value">{{ fmt(summary.taken_remaining) }}</div>
+    <div class="sub">{{ t('loans_total_prefix', fmt(summary.total_taken)) }}</div>
+  </div>
+  <div class="stat stat-blue">
+    <div class="label">{{ t('loans_given_label') }}</div>
+    <div class="value">{{ fmt(summary.given_remaining) }}</div>
+    <div class="sub">{{ t('loans_total_prefix', fmt(summary.total_given)) }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">{{ t('loans_net_label') }}</div>
+    <div class="value">{{ fmt(summary.taken_remaining - summary.given_remaining) }}</div>
+    <div class="sub">{{ t('loans_net_sub') }}</div>
+  </div>
+  <div class="stat {{ 'stat-red' if summary.overdue_count > 0 else '' }}">
+    <div class="label">{{ t('loans_overdue_label') }}</div>
+    <div class="value">{{ summary.overdue_count }}</div>
+    <div class="sub">{{ t('loans_overdue_sub') }}</div>
+  </div>
+</div>
+
+{% macro loan_table(loan_list, th_person, section_title, section_color) %}
+<div class="card">
+  <h3 style="color:{{ section_color }}">{{ section_title }}</h3>
+  <table>
+    <thead><tr>
+      <th>{{ th_person }}</th><th>{{ t('th_amount') }}</th><th>{{ t('th_paid') }}</th>
+      <th>{{ t('th_remainder') }}</th><th>{{ t('loans_th_currency') }}</th>
+      <th>{{ t('loans_th_taken_date') }}</th><th>{{ t('loans_th_due') }}</th>
+      <th>{{ t('loans_th_progress') }}</th><th>{{ t('th_status') }}</th>
+    </tr></thead>
+    <tbody>
+      {% if loan_list %}
+        {% for l in loan_list %}
+        {% set status_color = 'color:var(--done)' if l.status == 'yopilgan' else ('color:var(--red)' if l.overdue else 'color:var(--amber)') %}
+        {% set status_text = 'Yopilgan' if l.status == 'yopilgan' else ("Muddati o'tgan!" if l.overdue else 'Ochiq') %}
+        {% set bar_w = [l.paid_pct, 100]|min %}
+        {% set bar_color = 'var(--done)' if l.status == 'yopilgan' else ('var(--red)' if l.overdue else 'var(--primary)') %}
+        <tr data-status="{{ l.status }}">
+          <td>
+            <b>{{ l.counterparty }}</b><br>
+            <span style="font-size:11px;color:var(--text-light)">{{ l.description or '-' }}</span>
+          </td>
+          <td class="num">{{ fmt(l.total_amount) }}</td>
+          <td class="num" style="color:var(--done)">{{ fmt(l.total_paid) }}
+            {%- if l.interest_paid %}<br><span style="font-size:11px;color:var(--text-light)">+ foiz: {{ fmt(l.interest_paid) }}</span>{% endif %}</td>
+          <td class="num" style="font-weight:700;{{ 'color:var(--red)' if l.remaining > 0 else 'color:var(--done)' }}">{{ fmt(l.remaining) }}</td>
+          <td>{{ l.currency }}</td>
+          <td>{{ l.issue_date }}</td>
+          <td>{{ l.due_date or '-' }}</td>
+          <td>
+            <div class="progress-bar" style="width:80px;display:inline-block">
+              <div class="progress-fill" style="width:{{ bar_w|round|int }}%;background:{{ bar_color }}"></div>
+            </div>
+            <span style="font-size:11px;margin-left:4px">{{ l.paid_pct|round|int }}%</span>
+          </td>
+          <td style="{{ status_color }};font-weight:600">{{ status_text }}</td>
+        </tr>
+        {% endfor %}
+      {% else %}
+        <tr><td colspan="9" style="text-align:center;padding:30px;color:var(--text-light)">{{ t('loans_empty') }}</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+</div>
+{% endmacro %}
+
+{{ loan_table(taken, t('loans_taken_th_giver'), t('loans_taken_section', taken|length), 'var(--red)') }}
+{{ loan_table(given, t('loans_given_th_taker'), t('loans_given_section', given|length), 'var(--blue)') }}
+{% endblock %}

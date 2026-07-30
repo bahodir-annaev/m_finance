@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">{{ t('equip_title') }}</h1>
+    <p class="page-subtitle">{{ t('equip_subtitle') }}</p>
+  </div>
+  <div class="page-actions no-print">
+    <button onclick="window.print()" class="btn btn-outline">Print</button>
+  </div>
+</div>
+
+<div class="stats">
+  <div class="stat"><div class="label">{{ t('equip_personal') }}</div><div class="value">{{ fmt(p_total) }}</div></div>
+  <div class="stat"><div class="label">{{ t('equip_general') }}</div><div class="value">{{ fmt(g_total) }}</div></div>
+  <div class="stat"><div class="label">{{ t('equip_license') }}</div><div class="value">{{ fmt(l_total) }}</div></div>
+  <div class="stat"><div class="label">{{ t('equip_overhead') }}</div><div class="value">{{ fmt(o_total) }}</div></div>
+</div>
+
+<div class="card">
+  <h3>{{ t('equip_personal_title', personal|length) }}</h3>
+  <div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap" class="no-print">
+    <input type="text" id="eqSearch" placeholder="Qidirish..." oninput="filterEq()" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;width:180px;background:var(--surface)">
+    <select id="eqFStaff" onchange="filterEq()" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:var(--surface)">
+      <option value="">{{ t('th_staff') }} - {{ t('th_total') }}</option>
+      {% for s in eq_staff_set %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+    </select>
+    <button onclick="document.getElementById('eqSearch').value='';document.getElementById('eqFStaff').value='';filterEq()" class="btn btn-outline btn-sm">Reset</button>
+  </div>
+  <table id="eqPTable">
+    <thead><tr>
+      <th onclick="sortT('eqPTable',0)" style="cursor:pointer">{{ t('th_equipment') }} <span class="sort-icon">&#x25B4;&#x25BE;</span></th>
+      <th onclick="sortT('eqPTable',1)" style="cursor:pointer">{{ t('th_staff') }} <span class="sort-icon">&#x25B4;&#x25BE;</span></th>
+      <th onclick="sortT('eqPTable',2)" style="cursor:pointer">{{ t('th_price') }} <span class="sort-icon">&#x25B4;&#x25BE;</span></th>
+      <th onclick="sortT('eqPTable',3)" style="cursor:pointer">{{ t('th_lifespan') }} <span class="sort-icon">&#x25B4;&#x25BE;</span></th>
+      <th onclick="sortT('eqPTable',4)" style="cursor:pointer">{{ t('th_monthly_dep') }} <span class="sort-icon">&#x25B4;&#x25BE;</span></th>
+    </tr></thead>
+    <tbody id="eqPBody">
+      {% for e in personal %}
+      <tr data-staff="{{ e.staff_name or '-' }}">
+        <td>{{ e.name }}</td><td>{{ e.staff_name or '-' }}</td>
+        <td class="num">{{ fmt(e.price) }}</td><td class="num">{{ e.lifespan_months }}</td>
+        <td class="num">{{ fmt(e.price / [e.lifespan_months, 1]|max) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot><tr style="font-weight:700"><td colspan="4">{{ t('equip_total_monthly') }}</td><td class="num">{{ fmt(p_total) }}</td></tr></tfoot>
+  </table>
+  <div id="eqPCount" style="margin-top:8px;font-size:12px;color:var(--text-light)"></div>
+</div>
+
+<div class="card">
+  <h3>{{ t('equip_general_title', general|length) }}</h3>
+  <table id="eqGTable">
+    <thead><tr>
+      <th onclick="sortT('eqGTable',0)" style="cursor:pointer">{{ t('th_equipment') }} <span class="sort-icon">&#x25B4;&#x25BE;</span></th>
+      <th onclick="sortT('eqGTable',1)" style="cursor:pointer">{{ t('th_quantity') }} <span class="sort-icon">&#x25B4;&#x25BE;</span></th>
+      <th onclick="sortT('eqGTable',2)" style="cursor:pointer">{{ t('th_price') }} <span class="sort-icon">&#x25B4;&#x25BE;</span></th>
+      <th>{{ t('th_lifespan') }}</th>
+      <th onclick="sortT('eqGTable',4)" style="cursor:pointer">{{ t('th_monthly_dep') }} <span class="sort-icon">&#x25B4;&#x25BE;</span></th>
+    </tr></thead>
+    <tbody>
+      {% for e in general %}
+      <tr>
+        <td>{{ e.name }}</td><td class="num">{{ e.quantity }}</td>
+        <td class="num">{{ fmt(e.price) }}</td><td class="num">{{ e.lifespan_months }}</td>
+        <td class="num">{{ fmt(e.price / [e.lifespan_months, 1]|max) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot><tr style="font-weight:700"><td colspan="4">{{ t('equip_total_monthly') }}</td><td class="num">{{ fmt(g_total) }}</td></tr></tfoot>
+  </table>
+</div>
+
+<div class="card">
+  <h3>{{ t('equip_license_title', licenses|length) }}</h3>
+  <div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap" class="no-print">
+    <input type="text" id="licSearch" placeholder="Qidirish..." oninput="filterLic()" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;width:180px;background:var(--surface)">
+    <select id="licFStaff" onchange="filterLic()" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:var(--surface)">
+      <option value="">{{ t('th_staff') }} - {{ t('th_total') }}</option>
+      {% for s in lic_staff_set %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+    </select>
+    <select id="licFType" onchange="filterLic()" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:var(--surface)">
+      <option value="">{{ t('th_type') }} - {{ t('th_total') }}</option>
+      {% for tp in lic_type_set %}<option value="{{ tp }}">{{ tp }}</option>{% endfor %}
+    </select>
+    <button onclick="document.getElementById('licSearch').value='';document.getElementById('licFStaff').value='';document.getElementById('licFType').value='';filterLic()" class="btn btn-outline btn-sm">Reset</button>
+  </div>
+  <table id="licTable">
+    <thead><tr>
+      <th onclick="sortT('licTable',0)" style="cursor:pointer">{{ t('th_license') }} <span class="sort-icon">&#x25B4;&#x25BE;</span></th>
+      <th onclick="sortT('licTable',1)" style="cursor:pointer">{{ t('th_staff') }} <span class="sort-icon">&#x25B4;&#x25BE;</span></th>
+      <th>{{ t('th_type') }}</th>
+      <th onclick="sortT('licTable',3)" style="cursor:pointer">{{ t('th_annual') }} <span class="sort-icon">&#x25B4;&#x25BE;</span></th>
+      <th onclick="sortT('licTable',4)" style="cursor:pointer">{{ t('th_monthly') }} <span class="sort-icon">&#x25B4;&#x25BE;</span></th>
+    </tr></thead>
+    <tbody id="licBody">
+      {% for l in licenses %}
+      <tr data-staff="{{ l.staff_name or '-' }}" data-ltype="{{ l.license_type }}">
+        <td>{{ l.name }}</td><td>{{ l.staff_name or '-' }}</td>
+        <td>{{ l.license_type }}</td>
+        <td class="num">{{ fmt(l.annual_cost) }}</td>
+        <td class="num">{{ fmt(l.annual_cost / 12) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot><tr style="font-weight:700"><td colspan="4">{{ t('equip_total_monthly') }}</td><td class="num">{{ fmt(l_total) }}</td></tr></tfoot>
+  </table>
+  <div id="licCount" style="margin-top:8px;font-size:12px;color:var(--text-light)"></div>
+</div>
+
+<div class="card">
+  <h3>{{ t('equip_overhead_title') }}</h3>
+  <table id="ohTable">
+    <thead><tr>
+      <th onclick="sortT('ohTable',0)" style="cursor:pointer">{{ t('equip_name') }} <span class="sort-icon">&#x25B4;&#x25BE;</span></th>
+      <th onclick="sortT('ohTable',1)" style="cursor:pointer">{{ t('equip_amount') }} <span class="sort-icon">&#x25B4;&#x25BE;</span></th>
+    </tr></thead>
+    <tbody>
+      {% for o in overhead %}
+      <tr><td>{{ o.name }}</td><td class="num">{{ fmt(o.monthly_amount) }}</td></tr>
+      {% endfor %}
+    </tbody>
+    <tr style="font-weight:700"><td>{{ t('th_total') }}</td><td class="num">{{ fmt(o_total) }}</td></tr>
+  </table>
+</div>
+
+<script>
+var _sd = {};
+function sortT(tid, col) {
+  var tb = document.getElementById(tid).querySelector('tbody');
+  var rs = Array.from(tb.querySelectorAll('tr'));
+  if (!rs.length) return;
+  var d = _sd[tid+'_'+col] === 'asc' ? 'desc' : 'asc';
+  _sd[tid+'_'+col] = d;
+  rs.sort(function(a, b) {
+    var av = a.cells[col].textContent.trim(), bv = b.cells[col].textContent.trim();
+    var an = parseFloat(av.replace(/[,$]/g, '')), bn = parseFloat(bv.replace(/[,$]/g, ''));
+    if (!isNaN(an) && !isNaN(bn)) return d === 'asc' ? an - bn : bn - an;
+    return d === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+  });
+  rs.forEach(function(r) { tb.appendChild(r); });
+}
+function filterEq() {
+  var q = document.getElementById('eqSearch').value.toLowerCase();
+  var st = document.getElementById('eqFStaff').value;
+  var rs = document.querySelectorAll('#eqPBody tr');
+  var n = 0;
+  rs.forEach(function(r) {
+    var ok = (!q || r.textContent.toLowerCase().includes(q)) && (!st || r.dataset.staff === st);
+    r.style.display = ok ? '' : 'none';
+    if (ok) n++;
+  });
+  document.getElementById('eqPCount').textContent = n + ' / ' + rs.length;
+}
+function filterLic() {
+  var q = document.getElementById('licSearch').value.toLowerCase();
+  var st = document.getElementById('licFStaff').value;
+  var tp = document.getElementById('licFType').value;
+  var rs = document.querySelectorAll('#licBody tr');
+  var n = 0;
+  rs.forEach(function(r) {
+    var ok = (!q || r.textContent.toLowerCase().includes(q))
+          && (!st || r.dataset.staff === st)
+          && (!tp || r.dataset.ltype === tp);
+    r.style.display = ok ? '' : 'none';
+    if (ok) n++;
+  });
+  document.getElementById('licCount').textContent = n + ' / ' + rs.length;
+}
+filterEq(); filterLic();
+</script>
+{% endblock %}

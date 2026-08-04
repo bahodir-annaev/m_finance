@@ -46,9 +46,12 @@
           </div>
         </div>
       </div>
-      <div class="modal-footer" style="justify-content:flex-end">
-        <button type="button" class="btn btn-outline" onclick="closeStModal()">{{ t('btn_cancel') }}</button>
-        <button type="submit" class="btn btn-primary">{{ t('acc_save') }}</button>
+      <div class="modal-footer" style="justify-content:space-between">
+        <button type="button" class="btn btn-danger" onclick="deleteSt()">{{ t('btn_delete') }}</button>
+        <div style="display:flex;gap:8px">
+          <button type="button" class="btn btn-outline" onclick="closeStModal()">{{ t('btn_cancel') }}</button>
+          <button type="submit" class="btn btn-primary">{{ t('acc_save') }}</button>
+        </div>
       </div>
     </form>
   </div>
@@ -69,6 +72,18 @@ function openStModal(row) {
 
 function closeStModal() {
   document.getElementById('stModalOverlay').style.display = 'none';
+}
+
+function deleteSt() {
+  if (!confirm({{ t('st_del_confirm')|tojson }})) return;
+  var id = document.getElementById('st_id').value;
+  fetch('/api/delete/staff/' + id, { method: 'POST' })
+    .then(function (r) { return r.json(); })
+    .then(function (res) {
+      if (res.status === 'ok') { location.reload(); }
+      else { alert(res.error || 'Error'); }
+    })
+    .catch(function () { alert('Error'); });
 }
 
 function saveSt(e) {

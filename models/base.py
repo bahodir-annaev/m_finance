@@ -135,7 +135,7 @@ _ALLOWED_TABLES = [
 _DELETE_ALLOWED = [
     'transactions', 'personal_equipment',
     'general_equipment', 'personal_licenses', 'overhead', 'exchange_rates',
-    'dividends',
+    'dividends', 'staff',
 ]
 
 

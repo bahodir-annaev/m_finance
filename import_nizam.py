@@ -337,17 +337,3 @@ def import_nizam_file(filepath, period='all'):
         'employees_mapped': len(staff_map),
         'unmatched_names': unmatched_names,  # XATO #3: Mos kelmaganlar ro'yxati
     }
-
-
-if __name__ == '__main__':
-    if len(sys.argv) < 2:
-        print("Usage: python import_nizam.py <table.xlsx> [period]")
-        sys.exit(1)
-    filepath = sys.argv[1]
-    period = sys.argv[2] if len(sys.argv) > 2 else 'all'
-    result = import_nizam_file(filepath, period)
-    print(f"Import yakunlandi:")
-    print(f"  Proektlar: {result['projects']}")
-    print(f"  Soat yozuvlari: {result['hour_entries']}")
-    print(f"  O'tkazib yuborilgan: {result['skipped']}")
-    print(f"  Xodimlar: {result['employees_mapped']}")

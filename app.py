@@ -6,8 +6,7 @@ import threading
 import webbrowser
 
 from flask import Flask, request
-from models.base import init_db, get_db
-from import_nizam import ensure_staff_exists, seed_equipment_and_licenses
+from models.base import init_db
 from auth import login_manager
 
 # Local-network prefixes that are allowed to reach the app.
@@ -130,10 +129,6 @@ def _find_free_port():
 
 if __name__ == '__main__':
     init_db()
-    conn = get_db()
-    ensure_staff_exists(conn)
-    seed_equipment_and_licenses(conn)
-    conn.close()
 
     run_port = int(os.environ.get('PORT', 0))
     if run_port == 0:

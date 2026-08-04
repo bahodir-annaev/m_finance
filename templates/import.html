@@ -3,7 +3,39 @@
 <h1 class="page-title">{{ t('imp_title') }}</h1>
 <p class="page-subtitle">{{ t('imp_subtitle') }}</p>
 
-<div class="card" style="border-left:4px solid var(--accent)">
+{% if result_html %}{{ result_html|safe }}{% endif %}
+
+<div class="card">
+  <h3>{{ t('imp_card_title') }}</h3>
+  <form method="POST" enctype="multipart/form-data">
+    <div class="grid-2">
+      <div class="field"><label>{{ t('imp_file_label') }}</label>
+        <input type="file" name="file" accept=".xlsx,.xls"></div>
+      <div class="field"><label>{{ t('imp_period') }}</label>
+        <select name="period">
+          <option value="all">{{ t('imp_period_all') }}</option>
+          <option value="2025-06">2025 Iyun</option><option value="2025-07">2025 Iyul</option>
+          <option value="2025-08">2025 Avgust</option><option value="2025-09">2025 Sentyabr</option>
+          <option value="2025-10">2025 Oktyabr</option><option value="2025-11">2025 Noyabr</option>
+          <option value="2025-12">2025 Dekabr</option><option value="2026-01">2026 Yanvar</option>
+          <option value="2026-02">2026 Fevral</option><option value="2026-03">2026 Mart</option>
+        </select></div>
+    </div>
+    <button type="submit" class="btn btn-primary" style="margin-top:12px">{{ t('imp_btn') }}</button>
+  </form>
+</div>
+
+<div class="card">
+  <h3>{{ t('imp_what_title') }}</h3>
+  <ol style="padding-left:20px;line-height:1.8;font-size:13px">
+    <li>NIZAM xodimlari nizam_name / NIZAM_MAP orqali mavjud xodimlarga moslashtiriladi</li>
+    <li>Mos kelmagan ismlar xodim yaratilmasdan "mos kelmadi" ro'yxatida ko'rsatiladi — avval Xodimlar sahifasida qo'shing/nomini moslang, keyin qayta import qiling</li>
+    <li>Non-billable (Office, HR, Nizam UI...) avtomatik o'tkazib yuboriladi</li>
+    <li>HH:MM formatdagi soatlar parslanadi va project_hours jadvaliga yoziladi</li>
+  </ol>
+</div>
+
+<div class="card" style="margin-top:20px;border-left:4px solid var(--accent)">
   <h3>Eski Excel hisobotni import qilish</h3>
   <p style="font-size:13px;color:var(--text-light);margin-bottom:16px">
     Istalgan Excel faylni yuklang — tizim ustunlarni avtomatik aniqlaydi va mos jadvalga import qiladi.

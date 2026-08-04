@@ -5,12 +5,13 @@ from datetime import datetime
 from flask import Blueprint, request, redirect, send_file
 from werkzeug.utils import secure_filename
 from auth import require_role
-from utils import render_page
+from utils import render_page, t
 from models import (
     get_db, get_setting, get_dashboard_data, get_staff_kpi,
     calculate_hourly_rate, calculate_project_cost,
     analyze_excel_for_import, import_excel_data,
 )
+from import_nizam import import_nizam_file
 
 bp = Blueprint('import_export', __name__)
 
@@ -24,10 +25,31 @@ def _upload_folder():
     return os.path.join(os.path.dirname(__file__), '..', 'uploads')
 
 
-@bp.route('/import')
+@bp.route('/import', methods=['GET', 'POST'])
 @require_role('admin')
 def import_page():
-    return render_page('import', 'import.html')
+    result = None
+    if request.method == 'POST':
+        f = request.files.get('file')
+        if f:
+            path = os.path.join(_upload_folder(), secure_filename(f.filename))
+            f.save(path)
+            result = import_nizam_file(path, request.form.get('period', 'all'))
+
+    result_html = ''
+    if result:
+        unmatched = result.get('unmatched_names', [])
+        warn_html = ''
+        if unmatched:
+            warn_html = f'''<div class="alert" style="background:#fff3cd;border-left:4px solid #ffc107;padding:12px;margin-top:8px;">
+              <b>&#x26A0;&#xFE0F; Mos kelmaydigan xodimlar ({len(unmatched)}):</b> {", ".join(unmatched)}<br>
+              Bu ismlar NIZAM_MAP da topilmadi.
+            </div>'''
+        result_html = f'''<div class="alert alert-success">
+          {t("imp_success", result["projects"], result["hour_entries"], result["skipped"], result["employees_mapped"])}
+        </div>{warn_html}'''
+
+    return render_page('import', 'import.html', result_html=result_html)
 
 
 @bp.route('/api/import-excel/analyze', methods=['POST'])

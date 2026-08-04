@@ -249,11 +249,13 @@ def _fuzzy_match_nizam_name(nizam_name):
 
 def import_nizam_file(filepath, period='all'):
     """NIZAM CRM table.xlsx import
-    XATO #3: Yaxshilangan mapping + unmatched_names ro'yxati"""
+    XATO #3: Yaxshilangan mapping + unmatched_names ro'yxati
+
+    Does NOT auto-create staff — employees that don't match an existing
+    staff.nizam_name / NIZAM_MAP name come back in unmatched_names for the
+    admin to resolve manually (add/rename the staff row, then re-import)."""
     init_db()
     conn = get_db()
-    ensure_staff_exists(conn)
-    seed_equipment_and_licenses(conn)
 
     wb = openpyxl.load_workbook(filepath, data_only=True)
     ws = wb.active

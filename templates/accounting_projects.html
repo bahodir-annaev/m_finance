@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="page-title">{{ t('acc_tab_project') }}</h1>
+{% if msg %}{{ msg|safe }}{% endif %}
+
+<div class="card" style="border-left:4px solid var(--accent)">
+  <form method="POST">
+    <div class="grid-3">
+      <div class="field"><label>Proekt nomi</label><input name="proj_name" placeholder="Masalan: Tashkent City Tower" required></div>
+      <div class="field"><label>Proekt ID</label><input name="proj_id" placeholder="PRJ-021 (avtomatik)"></div>
+      <div class="field"><label>Mijoz (buyurtmachi)</label><input name="proj_client" placeholder="MCHJ nomi"></div>
+    </div>
+    <div class="grid-3">
+      <div class="field"><label>Mas'ul shaxs</label><input name="proj_responsible" placeholder="Kim boshqaradi"></div>
+      <div class="field"><label>Shartnoma summasi (UZS)</label><input name="proj_contract" type="number" step="any" placeholder="0"></div>
+      <div class="field"><label>Valyuta</label>
+        <select name="proj_currency"><option value="UZS">UZS</option><option value="USD">USD</option><option value="EUR">EUR</option></select></div>
+    </div>
+    <div class="grid-3">
+      <div class="field"><label>Boshlanish sanasi</label><input name="proj_start" type="date" value="{{ today_str }}"></div>
+      <div class="field"><label>Tugash sanasi</label><input name="proj_end" type="date"></div>
+      <div class="field"><label>Rejali soatlar (plan)</label><input name="proj_est_hours" type="number" step="any" placeholder="0"></div>
+    </div>
+    <div class="grid-3">
+      <div class="field"><label>Risk koeffitsienti</label><input name="proj_risk" type="number" step="0.01" value="1.15"></div>
+      <div class="field"><label>Holat</label>
+        <select name="proj_status"><option value="active">Faol</option><option value="completed">Yakunlangan</option><option value="paused">To'xtatilgan</option></select></div>
+      <div></div>
+    </div>
+    <button type="submit" class="btn btn-primary" style="margin-top:12px">Proekt qo'shish</button>
+  </form>
+</div>
+{% endblock %}

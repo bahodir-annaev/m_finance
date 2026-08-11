@@ -1,7 +1,6 @@
-"""Accounting (universal data entry) route."""
+"""Accounting (universal data entry) routes — one route per data-entry area."""
 from datetime import datetime
-from flask import Blueprint, request
-from flask_login import login_required
+from flask import Blueprint, request, redirect, flash
 from auth import require_role
 from utils import render_page, t, fmt
 from models import get_db, get_rate_for_date, get_all_loans
@@ -43,83 +42,20 @@ def _upsert_salary(conn, staff_id, salary, premium, start_date):
         )
 
 
-@bp.route('/accounting', methods=['GET', 'POST'])
+@bp.route('/accounting')
 @require_role('manager', 'admin')
-def accounting_page():
-    msg = ''
-    if request.method == 'POST':
-        msg = _handle_post()
-
-    conn = get_db()
-    projects = conn.execute("SELECT name FROM projects ORDER BY name").fetchall()
-    staff_list = conn.execute(
-        "SELECT id, name, role, staff_type FROM staff WHERE is_active=1 ORDER BY name"
-    ).fetchall()
-    overhead_list = conn.execute(
-        "SELECT id, name, monthly_amount FROM overhead WHERE is_active=1 ORDER BY name"
-    ).fetchall()
-    recent = conn.execute('''
-        SELECT t.date, t.tx_type as type, COALESCE(t.description,'') as description,
-               t.amount, t.paid, p.name as project_name,
-               t.direction as source, t.id
-        FROM transactions t LEFT JOIN projects p ON t.project_id = p.id
-        ORDER BY t.date DESC, t.id DESC LIMIT 15
-    ''').fetchall()
-    tx_types_ext = conn.execute(
-        "SELECT code, label_uz FROM tx_types WHERE direction IN ('external','both') AND is_active=1 ORDER BY sort_order"
-    ).fetchall()
-    tx_types_int = conn.execute(
-        "SELECT code, label_uz FROM tx_types WHERE direction IN ('internal','both') AND is_active=1 ORDER BY sort_order"
-    ).fetchall()
-    payment_types = conn.execute(
-        "SELECT code, label_uz FROM payment_types WHERE is_active=1 ORDER BY sort_order"
-    ).fetchall()
-    departments = conn.execute(
-        "SELECT label_uz FROM departments WHERE is_active=1 ORDER BY sort_order, label_uz"
-    ).fetchall()
-    staff_roles = conn.execute(
-        "SELECT label_uz FROM staff_roles WHERE is_active=1 ORDER BY sort_order, label_uz"
-    ).fetchall()
-    cats_ext = conn.execute(
-        "SELECT id, name_uz FROM transaction_categories"
-        " WHERE direction IN ('in','external','both') AND is_active=1 ORDER BY sort_order, name_uz"
-    ).fetchall()
-    cats_int = conn.execute(
-        "SELECT id, name_uz FROM transaction_categories"
-        " WHERE direction IN ('out','internal','both') AND is_active=1 ORDER BY sort_order, name_uz"
-    ).fetchall()
-    conn.close()
-
-    open_loans = [l for l in get_all_loans() if l['status'] == 'ochiq']
-    prod_staff = [s for s in staff_list if s['staff_type'] == 'production']
-
-    return render_page('accounting', 'accounting.html',
-        msg=msg,
-        today_str=datetime.now().strftime('%Y-%m-%d'),
-        projects=projects,
-        staff_list=staff_list,
-        prod_staff=prod_staff,
-        overhead_list=overhead_list,
-        open_loans=open_loans,
-        recent=recent,
-        tx_types_ext=tx_types_ext,
-        tx_types_int=tx_types_int,
-        payment_types=payment_types,
-        departments=departments,
-        staff_roles=staff_roles,
-        cats_ext=cats_ext,
-        cats_int=cats_int,
-    )
+def accounting_redirect():
+    return redirect('/accounting/transactions')
 
 
-def _handle_post():
-    conn = get_db()
-    section = request.form.get('section', '')
+@bp.route('/accounting/transactions', methods=['GET', 'POST'])
+@require_role('manager', 'admin')
+def accounting_transactions():
     today = datetime.now().strftime('%Y-%m-%d')
-    msg = ''
 
-    try:
-        if section == 'transaction':
+    if request.method == 'POST':
+        conn = get_db()
+        try:
             tx_date = request.form.get('date', today)
             direction = request.form.get('direction', 'kirish')
             tx_type = request.form.get('tx_type', '')
@@ -153,6 +89,7 @@ def _handle_post():
             raw_cat = request.form.get('category_id', '')
             category_id = int(raw_cat) if raw_cat.isdigit() else None
 
+            msg = ''
             # An invoice may be recorded before any money moves (paid = 0), as long
             # as a committed amount exists — that is what feeds AR aging.
             if (paid_val > 0 or amount_val > 0) and tx_type:
@@ -192,7 +129,61 @@ def _handle_post():
                          _derive_status(amount_uzs, paid_uzs)))
                     msg = f'<div class="alert alert-success">{t("acc_saved_internal")}</div>'
 
-        elif section == 'project':
+            conn.commit()
+        finally:
+            conn.close()
+
+        if msg:
+            flash(msg, 'success')
+        sub = 'ext' if direction == 'tashqi' else 'int'
+        return redirect(f'/accounting/transactions?sub={sub}')
+
+    active_sub = request.args.get('sub', 'ext')
+    if active_sub not in ('ext', 'int'):
+        active_sub = 'ext'
+
+    conn = get_db()
+    projects = conn.execute("SELECT name FROM projects ORDER BY name").fetchall()
+    tx_types_ext = conn.execute(
+        "SELECT code, label_uz FROM tx_types WHERE direction IN ('external','both') AND is_active=1 ORDER BY sort_order"
+    ).fetchall()
+    tx_types_int = conn.execute(
+        "SELECT code, label_uz FROM tx_types WHERE direction IN ('internal','both') AND is_active=1 ORDER BY sort_order"
+    ).fetchall()
+    payment_types = conn.execute(
+        "SELECT code, label_uz FROM payment_types WHERE is_active=1 ORDER BY sort_order"
+    ).fetchall()
+    cats_ext = conn.execute(
+        "SELECT id, name_uz FROM transaction_categories"
+        " WHERE direction IN ('in','external','both') AND is_active=1 ORDER BY sort_order, name_uz"
+    ).fetchall()
+    cats_int = conn.execute(
+        "SELECT id, name_uz FROM transaction_categories"
+        " WHERE direction IN ('out','internal','both') AND is_active=1 ORDER BY sort_order, name_uz"
+    ).fetchall()
+    conn.close()
+
+    return render_page('accounting_transactions', 'accounting_transactions.html',
+        today_str=today,
+        projects=projects,
+        tx_types_ext=tx_types_ext,
+        tx_types_int=tx_types_int,
+        payment_types=payment_types,
+        cats_ext=cats_ext,
+        cats_int=cats_int,
+        active_sub=active_sub,
+    )
+
+
+@bp.route('/accounting/projects', methods=['GET', 'POST'])
+@require_role('manager', 'admin')
+def accounting_projects():
+    today = datetime.now().strftime('%Y-%m-%d')
+
+    if request.method == 'POST':
+        conn = get_db()
+        msg = ''
+        try:
             proj_name = request.form.get('proj_name', '').strip()
             if proj_name:
                 conn.execute('''INSERT OR IGNORE INTO projects
@@ -209,8 +200,28 @@ def _handle_post():
                      float(request.form.get('proj_risk', 1.15) or 1.15),
                      request.form.get('proj_status', 'active')))
                 msg = f"<div class=\"alert alert-success\">Proekt qo'shildi: {proj_name}</div>"
+            conn.commit()
+        finally:
+            conn.close()
 
-        elif section == 'staff':
+        if msg:
+            flash(msg, 'success')
+        return redirect('/accounting/projects')
+
+    return render_page('accounting_projects', 'accounting_projects.html',
+        today_str=today,
+    )
+
+
+@bp.route('/accounting/staff', methods=['GET', 'POST'])
+@require_role('manager', 'admin')
+def accounting_staff():
+    today = datetime.now().strftime('%Y-%m-%d')
+
+    if request.method == 'POST':
+        conn = get_db()
+        msg = ''
+        try:
             action = request.form.get('staff_action', 'update_salary')
             if action == 'add_staff':
                 name = request.form.get('staff_name', '').strip()
@@ -234,8 +245,40 @@ def _handle_post():
                 if staff_id and salary > 0:
                     _upsert_salary(conn, staff_id, salary, premium, today)
                     msg = f'<div class="alert alert-success">{t("acc_salary_updated")}</div>'
+            conn.commit()
+        finally:
+            conn.close()
 
-        elif section == 'equipment':
+        if msg:
+            flash(msg, 'success')
+        return redirect('/accounting/staff')
+
+    conn = get_db()
+    staff_list = conn.execute(
+        "SELECT id, name, role, staff_type FROM staff WHERE is_active=1 ORDER BY name"
+    ).fetchall()
+    staff_roles = conn.execute(
+        "SELECT label_uz FROM staff_roles WHERE is_active=1 ORDER BY sort_order, label_uz"
+    ).fetchall()
+    departments = conn.execute(
+        "SELECT label_uz FROM departments WHERE is_active=1 ORDER BY sort_order, label_uz"
+    ).fetchall()
+    conn.close()
+
+    return render_page('accounting_staff', 'accounting_staff.html',
+        staff_list=staff_list,
+        staff_roles=staff_roles,
+        departments=departments,
+    )
+
+
+@bp.route('/accounting/equipment', methods=['GET', 'POST'])
+@require_role('manager', 'admin')
+def accounting_equipment():
+    if request.method == 'POST':
+        conn = get_db()
+        msg = ''
+        try:
             eq_name = request.form.get('eq_name', '').strip()
             eq_price = float(request.form.get('eq_price', 0) or 0)
             eq_months = int(request.form.get('eq_months', 36) or 36)
@@ -255,8 +298,33 @@ def _handle_post():
                         (eq_name, qty, eq_price, eq_months)
                     )
                     msg = f'<div class="alert alert-success">{t("acc_eq_general_added", eq_name)}</div>'
+            conn.commit()
+        finally:
+            conn.close()
 
-        elif section == 'license':
+        if msg:
+            flash(msg, 'success')
+        return redirect('/accounting/equipment')
+
+    conn = get_db()
+    staff_list = conn.execute(
+        "SELECT id, name, role, staff_type FROM staff WHERE is_active=1 ORDER BY name"
+    ).fetchall()
+    conn.close()
+    prod_staff = [s for s in staff_list if s['staff_type'] == 'production']
+
+    return render_page('accounting_equipment', 'accounting_equipment.html',
+        prod_staff=prod_staff,
+    )
+
+
+@bp.route('/accounting/licenses', methods=['GET', 'POST'])
+@require_role('manager', 'admin')
+def accounting_licenses():
+    if request.method == 'POST':
+        conn = get_db()
+        msg = ''
+        try:
             lic_name = request.form.get('lic_name', '').strip()
             lic_annual = float(request.form.get('lic_annual', 0) or 0)
             lic_staff_id = int(request.form.get('lic_staff_id', 0) or 0)
@@ -267,8 +335,33 @@ def _handle_post():
                      request.form.get('lic_type', 'named'))
                 )
                 msg = f'<div class="alert alert-success">{t("acc_lic_added", lic_name)}</div>'
+            conn.commit()
+        finally:
+            conn.close()
 
-        elif section == 'overhead':
+        if msg:
+            flash(msg, 'success')
+        return redirect('/accounting/licenses')
+
+    conn = get_db()
+    staff_list = conn.execute(
+        "SELECT id, name, role, staff_type FROM staff WHERE is_active=1 ORDER BY name"
+    ).fetchall()
+    conn.close()
+    prod_staff = [s for s in staff_list if s['staff_type'] == 'production']
+
+    return render_page('accounting_licenses', 'accounting_licenses.html',
+        prod_staff=prod_staff,
+    )
+
+
+@bp.route('/accounting/overhead', methods=['GET', 'POST'])
+@require_role('manager', 'admin')
+def accounting_overhead():
+    if request.method == 'POST':
+        conn = get_db()
+        msg = ''
+        try:
             oh_action = request.form.get('oh_action', 'add')
             if oh_action == 'add':
                 oh_name = request.form.get('oh_name', '').strip()
@@ -285,18 +378,34 @@ def _handle_post():
                 if oh_id and oh_amount > 0:
                     conn.execute("UPDATE overhead SET monthly_amount=? WHERE id=?", (oh_amount, oh_id))
                     msg = f'<div class="alert alert-success">{t("acc_oh_updated")}</div>'
+            conn.commit()
+        finally:
+            conn.close()
 
-        elif section == 'rate':
-            rate_val = float(request.form.get('rate_value', 0) or 0)
-            rate_date = request.form.get('rate_date', today)
-            if rate_val > 0:
-                conn.execute(
-                    "INSERT OR REPLACE INTO exchange_rates (date, rate) VALUES (?,?)",
-                    (rate_date, rate_val)
-                )
-                msg = f'<div class="alert alert-success">{t("acc_rate_saved", rate_date, fmt(rate_val))}</div>'
+        if msg:
+            flash(msg, 'success')
+        return redirect('/accounting/overhead')
 
-        elif section == 'loan':
+    conn = get_db()
+    overhead_list = conn.execute(
+        "SELECT id, name, monthly_amount FROM overhead WHERE is_active=1 ORDER BY name"
+    ).fetchall()
+    conn.close()
+
+    return render_page('accounting_overhead', 'accounting_overhead.html',
+        overhead_list=overhead_list,
+    )
+
+
+@bp.route('/accounting/loans', methods=['GET', 'POST'])
+@require_role('manager', 'admin')
+def accounting_loans():
+    today = datetime.now().strftime('%Y-%m-%d')
+
+    if request.method == 'POST':
+        conn = get_db()
+        msg = ''
+        try:
             loan_action = request.form.get('loan_action', 'add_loan')
             if loan_action == 'add_loan':
                 counterparty = request.form.get('counterparty', '').strip()
@@ -340,9 +449,17 @@ def _handle_post():
                         conn.execute("UPDATE loans SET status='yopilgan' WHERE id=?", (loan_id,))
                     cur_label = loan['currency'] if loan else 'UZS'
                     msg = f'<div class="alert alert-success">{t("loans_msg_payment", fmt(pay_amount), cur_label)}</div>'
+            conn.commit()
+        finally:
+            conn.close()
 
-        conn.commit()
-    finally:
-        conn.close()
+        if msg:
+            flash(msg, 'success')
+        return redirect('/accounting/loans')
 
-    return msg
+    open_loans = [l for l in get_all_loans() if l['status'] == 'ochiq']
+
+    return render_page('accounting_loans', 'accounting_loans.html',
+        today_str=today,
+        open_loans=open_loans,
+    )

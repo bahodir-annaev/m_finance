@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="page-title">{{ t('acc_tab_license') }}</h1>
+{% if msg %}{{ msg|safe }}{% endif %}
+
+<div class="card" style="border-left:4px solid var(--accent)">
+  <form method="POST">
+    <div class="grid-3">
+      <div class="field"><label>Litsenziya nomi</label><input name="lic_name" placeholder="Masalan: Autodesk Revit"></div>
+      <div class="field"><label>Yillik narxi (UZS)</label><input name="lic_annual" type="number" placeholder="0"></div>
+      <div class="field"><label>Xodim</label>
+        <select name="lic_staff_id"><option value="">-- tanlang --</option>
+        {% for s in prod_staff %}<option value="{{ s.id }}">{{ s.name }} ({{ s.role }})</option>{% endfor %}
+        </select></div>
+    </div>
+    <div class="grid-3">
+      <div class="field"><label>Litsenziya turi</label>
+        <select name="lic_type"><option value="named">Named (shaxsiy)</option><option value="floating">Floating (umumiy)</option></select></div>
+      <div></div><div></div>
+    </div>
+    <button type="submit" class="btn btn-green">Litsenziya qo'shish</button>
+  </form>
+</div>
+{% endblock %}

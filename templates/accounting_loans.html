@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="page-title">{{ t('acc_tab_loan') }}</h1>
+{% if msg %}{{ msg|safe }}{% endif %}
+
+<div class="card" style="border-left:4px solid var(--accent)">
+  <div class="grid-2">
+    <div style="border-right:1px solid var(--border);padding-right:20px">
+      <h4 style="margin-bottom:12px;color:var(--primary)">Yangi qarz yozish</h4>
+      <form method="POST">
+        <input type="hidden" name="loan_action" value="add_loan">
+        <div class="grid-2">
+          <div class="field"><label>Qarz turi</label>
+            <select name="loan_type">
+              <option value="olgan">Biz olganmiz (kreditorlik)</option>
+              <option value="bergan">Biz berganmiz (debitorlik)</option>
+            </select></div>
+          <div class="field"><label>Kim berdi / Kimga berildi</label><input name="counterparty" placeholder="Shaxs yoki tashkilot nomi" required></div>
+        </div>
+        <div class="field"><label>Tavsif</label><input name="loan_desc" placeholder="Masalan: Ofis ta'miri uchun qarz"></div>
+        <div class="grid-2">
+          <div class="field"><label>Summa</label><input name="loan_amount" type="number" step="any" placeholder="0" required></div>
+          <div class="field"><label>Valyuta</label>
+            <select name="loan_currency"><option value="UZS">UZS</option><option value="USD">USD</option></select></div>
+        </div>
+        <div class="grid-2">
+          <div class="field"><label>Olingan/Berilgan sana</label><input name="loan_date" type="date" value="{{ today_str }}"></div>
+          <div class="field"><label>Qaytarish muddati</label><input name="loan_due" type="date"></div>
+        </div>
+        <div class="field"><label>Izoh</label><input name="loan_notes" placeholder="Qo'shimcha ma'lumot"></div>
+        <button type="submit" class="btn btn-primary">Qarz yozish</button>
+      </form>
+    </div>
+    <div>
+      <h4 style="margin-bottom:12px;color:var(--primary)">Qarz to'lovi yozish</h4>
+      <form method="POST">
+        <input type="hidden" name="loan_action" value="add_payment">
+        <div class="field"><label>Qarz tanlang</label>
+          <select name="payment_loan_id">
+            <option value="">-- tanlang --</option>
+            {% for l in open_loans %}
+            <option value="{{ l.id }}">{{ l.counterparty }} — {{ fmt(l.remaining) }} {{ l.currency }} qoldiq</option>
+            {% endfor %}
+          </select></div>
+        <div class="grid-2">
+          <div class="field"><label>To'lov summasi</label><input name="payment_amount" type="number" step="any" placeholder="0"></div>
+          <div class="field"><label>Sana</label><input name="payment_date" type="date" value="{{ today_str }}"></div>
+        </div>
+        <div class="field"><label>To'lov turi</label>
+          <select name="payment_type">
+            <option value="asosiy">Asosiy qarz (qoldiqni kamaytiradi)</option>
+            <option value="foiz">Foiz (qoldiqqa ta'sir qilmaydi)</option>
+          </select></div>
+        <div class="field"><label>Izoh</label><input name="payment_notes" placeholder="Masalan: 1-qism to'lov"></div>
+        <button type="submit" class="btn btn-primary">To'lov yozish</button>
+      </form>
+    </div>
+  </div>
+  <div style="margin-top:16px">
+    <a href="/loans" class="btn btn-outline">Oldi-berdi jadvalini ko'rish &rarr;</a>
+  </div>
+</div>
+{% endblock %}

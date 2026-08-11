@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="page-title">{{ t('acc_tab_transaction') }}</h1>
+{% if msg %}{{ msg|safe }}{% endif %}
+
+<div class="card" style="border-left:4px solid var(--accent)">
+  <!-- inner subtab buttons -->
+  <div style="display:flex;gap:6px;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:12px">
+    <button class="btn {{ 'btn-primary' if active_sub=='ext' else 'btn-outline' }} tx-sub-btn" onclick="showTxSub('ext')">01 — Tashqi (External)</button>
+    <button class="btn {{ 'btn-primary' if active_sub=='int' else 'btn-outline' }} tx-sub-btn" onclick="showTxSub('int')">02 — Ichki (Internal)</button>
+  </div>
+
+  <!-- External subtab -->
+  <div id="txsub_ext" {% if active_sub != 'ext' %}style="display:none"{% endif %}>
+    <form method="POST">
+      <input type="hidden" name="direction" value="tashqi">
+      <div class="grid-4">
+        <div class="field"><label>Sana</label><input name="date" type="date" value="{{ today_str }}"></div>
+        <div class="field"><label>Turi</label>
+          <select name="tx_type">
+            {% if tx_types_ext %}
+              {% for tt in tx_types_ext %}<option value="{{ tt.code }}">{{ tt.label_uz }}</option>{% endfor %}
+            {% else %}
+              <option value="tushum">Tushum (kirish)</option>
+              <option value="outsourcing">Outsourcing</option>
+              <option value="material">Material</option>
+              <option value="mizan_monthly">Mizan oylik</option>
+              <option value="yakuniy_hisob">Yakuniy hisob</option>
+            {% endif %}
+          </select></div>
+        <div class="field"><label>Kategoriya</label>
+          <select name="category_id">
+            <option value="">—</option>
+            {% for c in cats_ext %}<option value="{{ c.id }}">{{ c.name_uz }}</option>{% endfor %}
+          </select></div>
+        <div class="field"><label>To'lov turi</label>
+          <select name="payment_type">
+            {% if payment_types %}
+              {% for pt in payment_types %}<option value="{{ pt.code }}">{{ pt.label_uz }}</option>{% endfor %}
+            {% else %}
+              <option value="bank">Bank</option>
+              <option value="naqd">Naqd</option>
+              <option value="karta">Karta</option>
+            {% endif %}
+          </select></div>
+      </div>
+      <div class="grid-4">
+        <div class="field"><label>Proekt</label>
+          <select name="project"><option value="">{{ t('acc_select') }}</option>
+          {% for p in projects %}<option value="{{ p.name }}">{{ p.name }}</option>{% endfor %}
+          </select></div>
+        <div class="field"><label>Tushum / Harajat nomi</label><input name="desc" placeholder="Masalan: 1-avans 40%"></div>
+        <div class="field"><label>Kimga to'langan</label><input name="paid_to" placeholder="SubCo, Mulkdor, Xodim nomi"></div>
+        <div class="field"><label>Hujjat ID <span style="color:var(--red)">*</span></label><input name="doc_id" placeholder="Masalan: SH-001" required></div>
+      </div>
+      <div class="grid-4">
+        <div class="field"><label id="ext_lbl_inv">Hisob summasi (UZS)</label><input name="amount_val" type="number" step="any" placeholder="0"></div>
+        <div class="field"><label id="ext_lbl_amount">To'landi (UZS)</label><input name="paid_val" type="number" step="any" placeholder="0"></div>
+        <div class="field"><label>Valyuta</label>
+          <select name="currency" onchange="updateAmountLabel('ext_lbl_amount', this.value);updateAmountLabel('ext_lbl_inv', this.value)">
+            <option value="UZS">UZS — So'm</option>
+            <option value="USD">USD — Dollar</option>
+          </select></div>
+        <div class="field"><label>To'lov muddati (deadline)</label><input name="deadline" type="date"></div>
+      </div>
+      <div class="grid-2">
+        <div class="field"><label>Izoh (sharx)</label><input name="notes" placeholder="Qo'shimcha ma'lumot"/></div>
+        <div style="align-self:end;font-size:12px;color:var(--text-light);padding-bottom:10px">
+          Hisob-faktura hali to'lanmagan bo'lsa: hisob summasini kiriting, "To'landi" ni 0 qoldiring.
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary" style="margin-top:12px;padding:10px 36px">{{ t('acc_save') }}</button>
+    </form>
+  </div>
+
+  <!-- Internal subtab -->
+  <div id="txsub_int" {% if active_sub != 'int' %}style="display:none"{% endif %}>
+    <form method="POST">
+      <input type="hidden" name="direction" value="ichki">
+      <div class="grid-4">
+        <div class="field"><label>Sana</label><input name="date" type="date" value="{{ today_str }}"></div>
+        <div class="field"><label>Turi / Kategoriya</label>
+          <select name="tx_type">
+            {% if tx_types_int %}
+              {% for tt in tx_types_int %}<option value="{{ tt.code }}">{{ tt.label_uz }}</option>{% endfor %}
+            {% else %}
+              <option value="maosh">Maosh</option>
+              <option value="premiya">Premiya</option>
+              <option value="ijara">Ijara</option>
+              <option value="kommunal">Kommunal</option>
+              <option value="soliq">Soliq</option>
+              <option value="ovqat">Ovqat</option>
+              <option value="litsenziya">Litsenziya</option>
+              <option value="malaka">Malaka oshirish</option>
+              <option value="overhead">Overhead</option>
+            {% endif %}
+          </select></div>
+        <div class="field"><label>Kategoriya</label>
+          <select name="category_id">
+            <option value="">—</option>
+            {% for c in cats_int %}<option value="{{ c.id }}">{{ c.name_uz }}</option>{% endfor %}
+          </select></div>
+        <div class="field"><label>To'lov turi</label>
+          <select name="payment_type">
+            {% if payment_types %}
+              {% for pt in payment_types %}<option value="{{ pt.code }}">{{ pt.label_uz }}</option>{% endfor %}
+            {% else %}
+              <option value="bank">Bank</option>
+              <option value="naqd">Naqd</option>
+              <option value="karta">Karta</option>
+            {% endif %}
+          </select></div>
+      </div>
+      <div class="grid-4">
+        <div class="field"><label>Tavsif (nima to'landi)</label><input name="desc" placeholder="Masalan: May 2026 maoshi"></div>
+        <div class="field"><label>Kimga to'langan</label><input name="paid_to" placeholder="Xodim yoki tashkilot nomi"></div>
+        <div class="field"><label>Hujjat ID <span style="color:var(--red)">*</span></label><input name="doc_id" placeholder="Masalan: MZ-0001" required></div>
+      </div>
+      <div class="grid-4">
+        <div class="field"><label id="int_lbl_amount">To'langan (UZS)</label><input name="paid_val" type="number" step="any" placeholder="0"></div>
+        <div class="field"><label>Valyuta</label>
+          <select name="currency" onchange="updateAmountLabel('int_lbl_amount', this.value)">
+            <option value="UZS">UZS — So'm</option>
+            <option value="USD">USD — Dollar</option>
+          </select></div>
+        <div></div>
+      </div>
+      <div class="grid-2">
+        <div class="field"><label>Izoh (sharx)</label><input name="notes" placeholder="Qo'shimcha ma'lumot"></div>
+        <div></div>
+      </div>
+      <button type="submit" class="btn btn-primary" style="margin-top:12px;padding:10px 36px">{{ t('acc_save') }}</button>
+    </form>
+  </div>
+</div>
+
+<script>
+function showTxSub(sub) {
+  document.getElementById('txsub_ext').style.display = sub === 'ext' ? '' : 'none';
+  document.getElementById('txsub_int').style.display = sub === 'int' ? '' : 'none';
+  var btns = document.querySelectorAll('.tx-sub-btn');
+  btns.forEach(function(b, i) {
+    var active = (sub === 'ext' && i === 0) || (sub === 'int' && i === 1);
+    b.classList.toggle('btn-primary', active);
+    b.classList.toggle('btn-outline', !active);
+  });
+}
+function updateAmountLabel(labelId, currency) {
+  var el = document.getElementById(labelId);
+  if (!el) return;
+  el.textContent = el.textContent.replace(/\(.*?\)/, '(' + currency + ')');
+}
+</script>
+{% endblock %}

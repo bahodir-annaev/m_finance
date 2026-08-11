@@ -1,5 +1,6 @@
 """Shared helpers — formatting, translation, rendering."""
-from flask import request, render_template
+from flask import request, render_template, get_flashed_messages
+from markupsafe import Markup
 from translations import get_text
 
 SUPPORTED_LANGS = ['uz', 'en', 'ru']
@@ -23,5 +24,12 @@ def fmt(n, decimals=0):
 
 
 def render_page(page, template_name, **ctx):
-    """Render a page template with standard context (page, t, fmt, lang)."""
+    """Render a page template with standard context (page, t, fmt, lang).
+
+    If the caller doesn't pass msg explicitly, fall back to a flash()-queued
+    message from a just-completed POST/redirect.
+    """
+    if 'msg' not in ctx:
+        flashed = get_flashed_messages()
+        ctx['msg'] = Markup(''.join(flashed)) if flashed else ''
     return render_template(template_name, page=page, t=t, fmt=fmt, lang=get_lang(), **ctx)

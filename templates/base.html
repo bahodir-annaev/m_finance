@@ -17,7 +17,13 @@
   {% if current_user.role in ('manager', 'admin') %}
   <div class="nav-group">{{ t('nav_management') }}</div>
   <div class="nav">
-    <a href="/accounting" class="{% if page=='accounting' %}active{% endif %}"><span class="num" style="color:#B8EBAC">+</span>{{ t('nav_accounting') }}</a>
+    <a href="/accounting/transactions" class="{% if page=='accounting_transactions' %}active{% endif %}"><span class="num" style="color:#B8EBAC">+</span>{{ t('acc_tab_transaction') }}</a>
+    <a href="/accounting/projects" class="{% if page=='accounting_projects' %}active{% endif %}"><span class="num" style="color:#B8EBAC">+</span>{{ t('acc_tab_project') }}</a>
+    <a href="/accounting/staff" class="{% if page=='accounting_staff' %}active{% endif %}"><span class="num" style="color:#B8EBAC">+</span>{{ t('acc_tab_staff') }}</a>
+    <a href="/accounting/equipment" class="{% if page=='accounting_equipment' %}active{% endif %}"><span class="num" style="color:#B8EBAC">+</span>{{ t('acc_tab_equipment') }}</a>
+    <a href="/accounting/licenses" class="{% if page=='accounting_licenses' %}active{% endif %}"><span class="num" style="color:#B8EBAC">+</span>{{ t('acc_tab_license') }}</a>
+    <a href="/accounting/overhead" class="{% if page=='accounting_overhead' %}active{% endif %}"><span class="num" style="color:#B8EBAC">+</span>{{ t('acc_tab_overhead') }}</a>
+    <a href="/accounting/loans" class="{% if page=='accounting_loans' %}active{% endif %}"><span class="num" style="color:#B8EBAC">+</span>{{ t('acc_tab_loan') }}</a>
     <!-- <a href="/ai" class="{% if page=='ai' %}active{% endif %}"><span class="num">🤖</span>{{ t('nav_ai') }}</a> -->
   </div>
   {% endif %}

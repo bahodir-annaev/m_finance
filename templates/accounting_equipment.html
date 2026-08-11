@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="page-title">{{ t('acc_tab_equipment') }}</h1>
+{% if msg %}{{ msg|safe }}{% endif %}
+
+<div class="card" style="border-left:4px solid var(--accent)">
+  <form method="POST">
+    <div class="grid-3">
+      <div class="field"><label>Texnika turi</label>
+        <select name="eq_type" id="eq_type" onchange="toggleEqStaff()">
+          <option value="personal">Shaxsiy (xodimga biriktirilgan)</option>
+          <option value="general">Umumiy (ofis)</option>
+        </select></div>
+      <div class="field"><label>Jihoz nomi</label><input name="eq_name" placeholder="Masalan: Dell Precision 7780"></div>
+      <div class="field"><label>Narxi (UZS)</label><input name="eq_price" type="number" placeholder="0"></div>
+    </div>
+    <div class="grid-3">
+      <div class="field" id="eq_staff_field"><label>Xodim</label>
+        <select name="eq_staff_id"><option value="">-- tanlang --</option>
+        {% for s in prod_staff %}<option value="{{ s.id }}">{{ s.name }} ({{ s.role }})</option>{% endfor %}
+        </select></div>
+      <div class="field"><label>Amortizatsiya (oy)</label><input name="eq_months" type="number" value="36"></div>
+      <div class="field" id="eq_qty_field" style="display:none"><label>Soni</label><input name="eq_qty" type="number" value="1"></div>
+    </div>
+    <button type="submit" class="btn btn-green">Texnika qo'shish</button>
+  </form>
+</div>
+
+<script>
+function toggleEqStaff() {
+  var t = document.getElementById('eq_type').value;
+  document.getElementById('eq_staff_field').style.display = t === 'personal' ? '' : 'none';
+  document.getElementById('eq_qty_field').style.display = t === 'general' ? '' : 'none';
+}
+</script>
+{% endblock %}

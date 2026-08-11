@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="page-title">{{ t('acc_tab_overhead') }}</h1>
+{% if msg %}{{ msg|safe }}{% endif %}
+
+<div class="card" style="border-left:4px solid var(--accent)">
+  <div class="grid-2">
+    <div style="border-right:1px solid var(--border);padding-right:20px">
+      <h4 style="margin-bottom:12px;color:var(--primary)">Yangi overhead qo'shish</h4>
+      <form method="POST">
+        <input type="hidden" name="oh_action" value="add">
+        <div class="field"><label>Nomi</label><input name="oh_name" placeholder="Masalan: Server hosting"></div>
+        <div class="field"><label>Oylik summa (UZS)</label><input name="oh_amount" type="number" placeholder="0"></div>
+        <button type="submit" class="btn btn-green">Qo'shish</button>
+      </form>
+    </div>
+    <div style="padding-left:20px">
+      <h4 style="margin-bottom:12px;color:var(--primary)">Mavjud overhead summani o'zgartirish</h4>
+      <form method="POST">
+        <input type="hidden" name="oh_action" value="update">
+        <div class="field"><label>Overhead</label>
+          <select name="oh_id"><option value="">-- tanlang --</option>
+          {% for o in overhead_list %}<option value="{{ o.id }}">{{ o.name }} ({{ fmt(o.monthly_amount) }})</option>{% endfor %}
+          </select></div>
+        <div class="field"><label>Yangi oylik summa (UZS)</label><input name="oh_new_amount" type="number" placeholder="0"></div>
+        <button type="submit" class="btn btn-primary">Yangilash</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

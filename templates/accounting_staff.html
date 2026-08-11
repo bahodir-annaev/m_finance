@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="page-title">{{ t('acc_tab_staff') }}</h1>
+{% if msg %}{{ msg|safe }}{% endif %}
+
+<div class="card" style="border-left:4px solid var(--accent)">
+  <div class="grid-2">
+    <div style="border-right:1px solid var(--border);padding-right:20px">
+      <h4 style="margin-bottom:12px;color:var(--primary)">{{ t('acc_add_staff_title') }}</h4>
+      <form method="POST">
+        <input type="hidden" name="staff_action" value="add_staff">
+        <div class="field"><label>Ism</label><input name="staff_name" placeholder="Masalan: Sardor"></div>
+        <div class="grid-2">
+          <div class="field"><label>Lavozim</label>
+            <input name="staff_role" list="role_options" placeholder="Arxitektor" autocomplete="off">
+            <datalist id="role_options">
+              {% for r in staff_roles %}<option value="{{ r.label_uz }}"></option>{% endfor %}
+            </datalist>
+          </div>
+          <div class="field"><label>Bo'lim</label>
+            <input name="staff_dept" list="dept_options" placeholder="Arxitektura" autocomplete="off">
+            <datalist id="dept_options">
+              {% for d in departments %}<option value="{{ d.label_uz }}"></option>{% endfor %}
+            </datalist>
+          </div>
+        </div>
+        <div class="field"><label>Turi</label>
+          <select name="staff_type"><option value="production">Ishchi (production)</option><option value="admin">Admin</option></select></div>
+        <div class="grid-2">
+          <div class="field"><label>Maosh (UZS)</label><input name="staff_salary" type="number" placeholder="0"></div>
+          <div class="field"><label>Premiya (UZS)</label><input name="staff_premium" type="number" placeholder="0"></div>
+        </div>
+        <button type="submit" class="btn btn-green">Xodim qo'shish</button>
+      </form>
+    </div>
+    <div style="padding-left:20px">
+      <h4 style="margin-bottom:12px;color:var(--primary)">Maosh o'zgartirish</h4>
+      <form method="POST">
+        <input type="hidden" name="staff_action" value="update_salary">
+        <div class="field"><label>Xodim</label>
+          <select name="staff_id"><option value="">-- tanlang --</option>
+          {% for s in staff_list %}<option value="{{ s.id }}">{{ s.name }} ({{ s.role }})</option>{% endfor %}
+          </select></div>
+        <div class="grid-2">
+          <div class="field"><label>Yangi maosh (UZS)</label><input name="new_salary" type="number" placeholder="0"></div>
+          <div class="field"><label>Yangi premiya (UZS)</label><input name="new_premium" type="number" placeholder="0"></div>
+        </div>
+        <button type="submit" class="btn btn-primary">Maosh yangilash</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

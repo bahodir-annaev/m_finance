@@ -28,4 +28,50 @@
     </div>
   </div>
 </div>
+
+<div class="card" style="border-left:4px solid var(--warning);margin-top:24px">
+  <h3 style="color:var(--warning);margin-bottom:16px">Overhead reconciliation (Haqiqiy vs Nashariychalik)</h3>
+  <p style="font-size:0.9em;color:var(--text-muted);margin-bottom:16px">
+    Qo'lda kiritilgan overhead jadvali vs. haqiqiy ichki o'tkazmalar (12 oylik oyna).
+    Agar ortiqcha xarajatlar bor bo'lsa — "Indirect pool" yonidagi toggle <strong>/settings</strong> sahifasida.
+  </p>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;padding:12px;background:var(--bg-secondary);border-radius:4px">
+    <div>
+      <div style="font-size:0.85em;color:var(--text-muted)">Qo'lda kiritilgan tariffasi</div>
+      <div style="font-size:1.3em;font-weight:bold;color:var(--primary)">{{ fmt(static_total) }} UZS/oy</div>
+    </div>
+    <div>
+      <div style="font-size:0.85em;color:var(--text-muted)">Haqiqiy 12-oylik o'rtacha</div>
+      <div style="font-size:1.3em;font-weight:bold;color:var(--accent)">{{ fmt(pool_monthly) }} UZS/oy</div>
+    </div>
+  </div>
+
+  {% if pool_breakdown %}
+  <div style="overflow-x:auto">
+    <table style="width:100%;font-size:0.9em;border-collapse:collapse">
+      <thead>
+        <tr style="border-bottom:2px solid var(--border)">
+          <th style="text-align:left;padding:8px">To'lov turi</th>
+          <th style="text-align:right;padding:8px">12-oy summa (UZS)</th>
+          <th style="text-align:right;padding:8px">Oylik o'rtacha (UZS)</th>
+          <th style="text-align:right;padding:8px">Sanalar</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in pool_breakdown %}
+        <tr style="border-bottom:1px solid var(--border)">
+          <td style="padding:8px">{{ item.tx_type }}</td>
+          <td style="padding:8px;text-align:right">{{ fmt(item.total) }}</td>
+          <td style="padding:8px;text-align:right;font-weight:bold">{{ fmt(item.total / 12) }}</td>
+          <td style="padding:8px;text-align:right">{{ item.count }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p style="color:var(--text-muted);font-style:italic">Hali to'lovlar yo'q.</p>
+  {% endif %}
+</div>
 {% endblock %}

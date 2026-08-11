@@ -109,6 +109,85 @@ def get_total_overhead():
     return row['total'] or 0
 
 
+def get_indirect_pool_monthly():
+    """Trailing-window average of actual internal cash costs not already
+    modeled via salary_history/tax_rate (excludes maosh, soliq).
+    Falls back to fewer months if insufficient history exists."""
+    from .base import INDIRECT_POOL_EXCLUDED_TX_TYPES
+    from datetime import datetime, timedelta
+
+    window_months = get_setting('indirect_pool_window_months') or 12
+    conn = get_db()
+
+    min_date = conn.execute(
+        "SELECT MIN(date) as d FROM transactions WHERE direction='internal' AND paid > 0"
+    ).fetchone()
+    conn.close()
+
+    if not min_date or not min_date['d']:
+        return 0
+
+    earliest = datetime.strptime(min_date['d'], '%Y-%m-%d')
+    today = datetime.now()
+    elapsed_months = max(
+        1,
+        min(window_months, round((today - earliest).days / 30.44))
+    )
+
+    excluded_sql = "(" + ",".join(f"'{t}'" for t in INDIRECT_POOL_EXCLUDED_TX_TYPES) + ")"
+    cutoff = (today - timedelta(days=elapsed_months * 30.44)).strftime('%Y-%m-%d')
+
+    conn = get_db()
+    row = conn.execute(f"""
+        SELECT COALESCE(SUM(paid), 0) as total
+        FROM transactions
+        WHERE direction='internal' AND paid > 0 AND tx_type NOT IN {excluded_sql}
+              AND date >= ?
+    """, (cutoff,)).fetchone()
+    conn.close()
+
+    return (row['total'] or 0) / elapsed_months
+
+
+def get_indirect_pool_breakdown():
+    """Per-tx_type breakdown of indirect pool costs for reconciliation view."""
+    from .base import INDIRECT_POOL_EXCLUDED_TX_TYPES
+    from datetime import datetime, timedelta
+
+    window_months = get_setting('indirect_pool_window_months') or 12
+    conn = get_db()
+
+    min_date = conn.execute(
+        "SELECT MIN(date) as d FROM transactions WHERE direction='internal' AND paid > 0"
+    ).fetchone()
+    conn.close()
+
+    if not min_date or not min_date['d']:
+        return []
+
+    earliest = datetime.strptime(min_date['d'], '%Y-%m-%d')
+    today = datetime.now()
+    elapsed_months = max(
+        1,
+        min(window_months, round((today - earliest).days / 30.44))
+    )
+
+    excluded_sql = "(" + ",".join(f"'{t}'" for t in INDIRECT_POOL_EXCLUDED_TX_TYPES) + ")"
+    cutoff = (today - timedelta(days=elapsed_months * 30.44)).strftime('%Y-%m-%d')
+
+    conn = get_db()
+    rows = conn.execute(f"""
+        SELECT tx_type, COALESCE(SUM(paid), 0) as total, COUNT(*) as count
+        FROM transactions
+        WHERE direction='internal' AND paid > 0 AND tx_type NOT IN {excluded_sql}
+              AND date >= ?
+        GROUP BY tx_type ORDER BY total DESC
+    """, (cutoff,)).fetchall()
+    conn.close()
+
+    return [dict(r) for r in rows]
+
+
 def _proportional_share(total_cost, staff_id):
     """Distribute total_cost across production staff proportional to current-period hours."""
     period = _get_latest_period()
@@ -143,8 +222,8 @@ def calculate_hourly_rate(staff_id):
     ).fetchone()
     # Load all required settings in one query instead of six separate get_setting() calls
     settings_rows = conn.execute(
-        "SELECT key, value FROM settings WHERE key IN (?,?,?,?,?,?)",
-        ('tax_rate', 'social_rate', 'billing_multiplier', 'holidays_per_year', 'avg_leave_days', 'usd_rate'),
+        "SELECT key, value FROM settings WHERE key IN (?,?,?,?,?,?,?)",
+        ('tax_rate', 'social_rate', 'billing_multiplier', 'holidays_per_year', 'avg_leave_days', 'usd_rate', 'indirect_pool_enabled'),
     ).fetchall()
     conn.close()
     if not sal:
@@ -157,6 +236,7 @@ def calculate_hourly_rate(staff_id):
     usd_rate = get_current_usd_rate()
     holidays = s.get('holidays_per_year') or 14
     leave_days = s.get('avg_leave_days') or 20
+    indirect_pool_enabled = s.get('indirect_pool_enabled') or 0
     available_hours = ((365 - 104 - holidays - leave_days) / 12) * 8
 
     base = sal['base_salary']
@@ -181,7 +261,8 @@ def calculate_hourly_rate(staff_id):
 
     admin_share = get_admin_total_cost() * share_ratio
     general_eq_share = get_general_equipment_monthly() * share_ratio
-    overhead_share = get_total_overhead() * share_ratio
+    overhead_total = get_indirect_pool_monthly() if indirect_pool_enabled else get_total_overhead()
+    overhead_share = overhead_total * share_ratio
 
     personal_eq = get_personal_equipment_monthly(staff_id)
     personal_lic = get_personal_license_monthly(staff_id)

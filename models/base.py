@@ -14,6 +14,11 @@ INCOME_TX_TYPES = ('tushum', 'mizan_monthly', 'yakuniy_hisob')
 # Pre-rendered SQL literal for use inside CASE/WHERE expressions.
 INCOME_TX_SQL = "(" + ",".join(f"'{t}'" for t in INCOME_TX_TYPES) + ")"
 
+# Internal tx_types already modeled elsewhere in the cost formula (via salary_history
+# or computed tax_rate). Everything else under direction='internal' feeds the
+# indirect cost pool when enabled.
+INDIRECT_POOL_EXCLUDED_TX_TYPES = ('maosh', 'soliq')
+
 
 def get_db():
     conn = sqlite3.connect(DB_PATH)
@@ -642,6 +647,8 @@ def init_db():
             ('avg_leave_days', 20, "O'rtacha ta'til + kasallik (yiliga)", 'kun'),
             ('utilization_rate', 0.75, 'Maqsadli utilization rate', '%'),
             ('kpi_months', 43, 'KPI hisoblash davri (oylar)', 'oy'),
+            ('indirect_pool_enabled', 0, 'Haqiqiy kassa xarajatlaridan bastirilgan indirect-cost pooldan foydalanish', '0/1'),
+            ('indirect_pool_window_months', 12, 'Indirect pool oynaning kuni (oylar)', 'oy'),
         ]
         c.executemany("INSERT INTO settings VALUES (?,?,?,?)", defaults)
         rates = [
@@ -890,6 +897,8 @@ def init_db():
         ('avg_leave_days', 20, "O'rtacha ta'til + kasallik (yiliga)", 'kun'),
         ('utilization_rate', 0.75, 'Maqsadli utilization rate', '%'),
         ('kpi_months', 43, 'KPI hisoblash davri (oylar)', 'oy'),
+        ('indirect_pool_enabled', 0, 'Haqiqiy kassa xarajatlaridan bastirilgan indirect-cost pooldan foydalanish', '0/1'),
+        ('indirect_pool_window_months', 12, 'Indirect pool oynaning kuni (oylar)', 'oy'),
     ]
     for key, val, label, unit in new_settings:
         if not c.execute("SELECT key FROM settings WHERE key=?", (key,)).fetchone():

@@ -11,6 +11,8 @@ from .transactions import get_cash_flow_by_month
 
 
 def get_burn_rate_and_runway():
+    from .staff import get_indirect_pool_monthly
+
     conn = get_db()
     sal_rows = conn.execute('''
         SELECT SUM(sh.base_salary + sh.premium) as total
@@ -22,9 +24,10 @@ def get_burn_rate_and_runway():
 
     tax_rate = get_setting('tax_rate') or 0.12
     social_rate = get_setting('social_rate') or 0.12
+    indirect_pool_enabled = (get_setting('indirect_pool_enabled') or 0)
     monthly_salary = sal_rows['total'] if sal_rows and sal_rows['total'] else 0
     monthly_salary_full = monthly_salary * (1 + tax_rate + social_rate)
-    monthly_overhead = get_total_overhead()
+    monthly_overhead = get_indirect_pool_monthly() if indirect_pool_enabled else get_total_overhead()
     monthly_equipment = get_general_equipment_monthly()
     # Burn rate is cash leaving the business, so it excludes the non-cash
     # general-equipment depreciation. Total operating cost keeps the full figure.
@@ -142,7 +145,9 @@ def get_dashboard_data():
     avg_cost_rate = sum(cost_rates) / len(cost_rates) if cost_rates else 0
     avg_billing_rate = sum(billing_rates) / len(billing_rates) if billing_rates else 0
     usd_rate = get_current_usd_rate()
-    overhead = get_total_overhead()
+    indirect_pool_enabled = (get_setting('indirect_pool_enabled') or 0)
+    from .staff import get_indirect_pool_monthly
+    overhead = get_indirect_pool_monthly() if indirect_pool_enabled else get_total_overhead()
 
     theoretical_available = prod_count * kpi_months * available_hours
     utilization = (total_hours / theoretical_available * 100) if theoretical_available > 0 else 0

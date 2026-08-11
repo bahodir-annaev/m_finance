@@ -154,13 +154,17 @@ The 2.0× markup absorbs utilization loss and the target margin in a single mult
 
 ### Overhead/admin/general-equipment distribution
 
-Shared costs (admin salaries, overhead table, general equipment depreciation) are split across production staff proportionally to each person's share of **billable hours in the most recent imported period**, not by head count:
+Shared costs (admin salaries, general equipment depreciation, and **indirect cost pool**) are split across production staff proportionally to each person's share of **billable hours in the most recent imported period**, not by head count:
 
 ```
 admin_share for person X = admin_total × (X's hours this period / total billable hours this period)
 ```
 
 Fallback chain if period data is missing: cumulative all-time hours → equal head-count split.
+
+**Indirect Cost Pool (v5.1+)** — By default, overhead comes from the hand-maintained `overhead` table (static line items: rent, utilities, food, etc.). When `indirect_pool_enabled=1` (in Settings), overhead is replaced by a *trailing-window average of actual internal cash costs* (`transactions` with `direction='internal'` and `tx_type NOT IN ('maosh', 'soliq')`). This matches accounting standards (AASHTO/FAR) and captures irregular expenses (training, bonuses, misc overhead) that the static table might miss.
+
+Pool calculation: `SUM(paid) / elapsed_months` over the trailing window (12 months by default, configurable via `indirect_pool_window_months` setting), excluding salary disbursements and tax payments (already modeled elsewhere). The reconciliation view at `/accounting/overhead` shows the static table total vs. the pool total, per `tx_type`, so you can audit the difference before enabling.
 
 ### Database tables
 

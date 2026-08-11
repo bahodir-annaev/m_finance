@@ -537,6 +537,8 @@ Default seed: `admin` / `mizan2024` inserted on first run if table is empty.
 | `target_margin` | 0.50 | Pricing engine: target gross margin |
 | `kpi_months` | 43 | KPI calculation window in months |
 | `effective_hours` | 152 | Available hours/month (informational) |
+| `indirect_pool_enabled` | 0 | Toggle: if 1, use actual internal transaction pool; if 0, use static overhead table |
+| `indirect_pool_window_months` | 12 | Lookback window (months) for indirect pool averaging |
 
 **Used in:** Nearly every model function. `get_setting(key)` is the primary accessor (from `models/base.py`). `controllers/settings_bp.py` provides the admin UI to edit these.
 
@@ -1072,11 +1074,13 @@ The most complex model. Handles all staff cost logic.
 | `get_total_billable_hours(period)` | Total billable hours (all production staff, optionally filtered by period) |
 | `get_staff_billable_hours(staff_id, period)` | Billable hours for a specific staff member |
 | `get_admin_total_cost()` | Sum of all active admin staff gross × (1 + tax + social) |
-| `get_total_overhead()` | Sum of all active overhead monthly_amount |
+| `get_total_overhead()` | Sum of all active overhead table monthly_amount |
+| `get_indirect_pool_monthly()` | Trailing-window (default 12mo) average of internal transactions excluding maosh/soliq; 0 if no data |
+| `get_indirect_pool_breakdown()` | Per-tx_type breakdown of indirect pool for reconciliation view |
 | `get_admin_share_for_staff(staff_id)` | Admin cost allocated to one production staff member |
 | `get_overhead_share_for_staff(staff_id)` | Overhead allocated to one production staff member |
 | `get_general_equipment_share_for_staff(staff_id)` | General equipment depreciation allocated |
-| `calculate_hourly_rate(staff_id)` | **Core function** — returns full rate breakdown dict or 0 |
+| `calculate_hourly_rate(staff_id)` | **Core function** — returns full rate breakdown dict or 0; uses pool if enabled, else static overhead |
 | `get_staff_kpi()` | Returns KPI list for all active production staff |
 | `snapshot_period_allocations(period)` | Freezes cost allocation data for all production staff into `period_allocations` |
 | `snapshot_hours_rates(period, source)` | Writes `applied_cost_rate` etc. onto `project_hours` rows |

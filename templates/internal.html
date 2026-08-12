@@ -68,29 +68,57 @@
       {{ sort_th('paid', t('th_paid')) }}
       {{ sort_th('category', t('th_category')) }}
       <th>{{ t('th_notes') }}</th>
+      {% if can_edit %}<th class="no-print"></th>{% endif %}
     </tr></thead>
     <tbody id="intBody">
       {% if txs %}
         {% for tx in txs %}
         {% set tx_unresolved = (tx.project_id is none or tx.counterparty_id is none) and (tx.id in unresolved_ids) %}
+        {% set is_payment = tx.parent_tx_id is not none %}
         <tr data-category="{{ tx.tx_type }}" data-responsible="{{ tx.responsible or '-' }}"
             {% if can_edit %}class="tx-row" style="cursor:pointer" onclick="openTxModal(this)"{% endif %}
             data-id="{{ tx.id }}" data-direction="{{ tx.direction }}" data-tx-type="{{ tx.tx_type or '' }}"
             data-date="{{ tx.date or '' }}" data-amount="{{ tx.amount or 0 }}" data-paid="{{ tx.paid or 0 }}"
+            data-settled="{{ tx.settled or 0 }}" data-parent-tx-id="{{ tx.parent_tx_id or '' }}"
             data-currency="{{ tx.currency or 'UZS' }}" data-description="{{ tx.description or '' }}"
             data-notes="{{ tx.notes or '' }}" data-client="{{ tx.client or '' }}" data-paid-to="{{ tx.paid_to or '' }}"
             data-responsible-name="{{ tx.responsible or '' }}" data-status="{{ tx.status or '' }}"
             data-payment-type="{{ tx.payment_type or '' }}" data-doc-id="{{ tx.doc_id or '' }}"
             data-deadline="{{ tx.deadline or '' }}" data-project-id="{{ tx.project_id or '' }}"
             data-unresolved="{{ '1' if tx_unresolved else '0' }}">
-          <td>{{ tx.date }}</td><td>{{ tx.description }}</td><td>{{ tx.responsible or '-' }}</td>
-          <td class="num">{{ fmt(tx.paid) }}</td>
+          <td>{{ tx.date }}</td>
+          <td>
+            {% if is_payment %}
+              <span class="badge" style="background:var(--bg-alt);color:var(--text-light);font-size:11px">
+                &#8627; {{ t('tx_payment_badge') }}</span>
+              {{ t('tx_payment_of') }} {{ tx.parent_doc_id or '#' ~ tx.parent_tx_id }}
+            {% else %}
+              {{ tx.description }}
+            {% endif %}
+          </td>
+          <td>{{ tx.responsible or '-' }}</td>
+          <td class="num">
+            {# Parents show the settled total across their payment rows, not raw `paid`. #}
+            {{ fmt(tx.settled if not is_payment else tx.paid) }}
+            {% if not is_payment and tx.outstanding and tx.outstanding > 0 %}
+              <div style="font-size:11px;color:var(--red)">
+                {{ t('tx_remaining') }}: {{ fmt(tx.outstanding) }}</div>
+            {% endif %}
+          </td>
           <td><span class="badge badge-prod">{{ tx.tx_type }}</span></td>
           <td class="notes-cell">{{ tx.notes or '-' }}</td>
+          {% if can_edit %}
+          <td class="no-print">
+            {% if not is_payment and tx.outstanding and tx.outstanding > 0 %}
+              <button type="button" class="btn btn-outline btn-sm"
+                      onclick="openTxPayModal(this, event)">{{ t('tx_add_payment') }}</button>
+            {% endif %}
+          </td>
+          {% endif %}
         </tr>
         {% endfor %}
       {% else %}
-        <tr><td colspan="6" class="empty-state" style="padding:40px">{{ t('int_empty') }}</td></tr>
+        <tr><td colspan="{{ 7 if can_edit else 6 }}" class="empty-state" style="padding:40px">{{ t('int_empty') }}</td></tr>
       {% endif %}
     </tbody>
   </table>
@@ -112,5 +140,5 @@
   </div>
 </div>
 
-{% if can_edit %}{% include '_tx_modal.html' %}{% endif %}
+{% if can_edit %}{% include '_tx_modal.html' %}{% include '_tx_payment_modal.html' %}{% endif %}
 {% endblock %}

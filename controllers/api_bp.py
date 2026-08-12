@@ -2,7 +2,11 @@
 from flask import Blueprint, request, jsonify, redirect, make_response
 from flask_login import login_required
 from auth import require_role
-from models import get_record, update_record, delete_record, update_transaction
+from utils import t
+from models import (
+    get_record, update_record, delete_record, update_transaction,
+    delete_transaction, add_transaction_payment,
+)
 
 bp = Blueprint('api', __name__)
 
@@ -40,7 +44,8 @@ def api_update_record(table, record_id):
             except (ValueError, TypeError):
                 pass
     # FK columns: blank string means "unlink" (NULL), otherwise coerce to int
-    for key in ['project_id', 'counterparty_id', 'responsible_id', 'category_id', 'phase_id']:
+    for key in ['project_id', 'counterparty_id', 'responsible_id', 'category_id',
+                'phase_id', 'parent_tx_id']:
         if key in data:
             val = str(data[key]).strip()
             data[key] = int(val) if val.isdigit() else None
@@ -58,7 +63,29 @@ def api_update_record(table, record_id):
 @bp.route('/api/delete/<table>/<int:record_id>', methods=['POST'])
 @require_role('manager', 'admin')
 def api_delete_record(table, record_id):
+    if table == 'transactions':
+        # transactions delete hard; removing an invoice that still has payment rows
+        # would orphan them, so delete_transaction refuses and says why
+        success, err = delete_transaction(record_id)
+        if success:
+            return jsonify({'status': 'ok'})
+        return jsonify({'error': t(err)}), 400
     success = delete_record(table, record_id)
     if success:
         return jsonify({'status': 'ok'})
     return jsonify({'error': 'Delete failed'}), 400
+
+
+@bp.route('/api/transactions/<int:parent_id>/payments', methods=['POST'])
+@require_role('manager', 'admin')
+def api_add_transaction_payment(parent_id):
+    """Record a follow-up payment against a partially-paid transaction."""
+    data = request.form.to_dict()
+    try:
+        data['amount'] = float(data.get('amount') or 0)
+    except (ValueError, TypeError):
+        return jsonify({'error': t('tx_pay_amount_err')}), 400
+    new_id, err = add_transaction_payment(parent_id, data)
+    if err:
+        return jsonify({'error': t(err)}), 400
+    return jsonify({'status': 'ok', 'id': new_id})

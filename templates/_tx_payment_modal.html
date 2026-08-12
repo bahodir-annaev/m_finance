@@ -1,0 +1,106 @@
+<div id="txPayOverlay" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeTxPayModal()">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h3>{{ t('tx_payment_title') }}</h3>
+      <button type="button" class="modal-close" onclick="closeTxPayModal()">&times;</button>
+    </div>
+    <form id="txPayForm" onsubmit="return saveTxPayment(event)">
+      <div class="modal-body">
+        <input type="hidden" id="txpay_parent_id">
+        <div class="card" style="margin-bottom:16px;padding:12px;background:var(--bg-alt)">
+          <div style="font-weight:600;margin-bottom:6px" id="txpay_parent_desc"></div>
+          <div style="display:flex;gap:20px;flex-wrap:wrap;font-size:13px">
+            <span>{{ t('th_amount') }}: <b id="txpay_parent_amount"></b></span>
+            <span>{{ t('tx_settled') }}: <b id="txpay_parent_settled"></b></span>
+            <span>{{ t('tx_remaining') }}: <b id="txpay_parent_remaining" style="color:var(--red)"></b></span>
+          </div>
+        </div>
+        <div class="grid-2">
+          <div class="field">
+            <label>{{ t('th_date') }}</label>
+            <input type="date" name="date" id="txpay_date" required>
+          </div>
+          <div class="field">
+            <label>{{ t('th_amount') }}</label>
+            <input type="number" step="any" name="amount" id="txpay_amount" required>
+          </div>
+          <div class="field">
+            <label>{{ t('tx_payment_type') }}</label>
+            <select name="payment_type" id="txpay_payment_type">
+              {% for pt in m_payment_types %}<option value="{{ pt.code }}">{{ pt.label_uz }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="field">
+            <label>{{ t('acc_currency') }}</label>
+            <select name="currency" id="txpay_currency">
+              <option value="UZS">UZS</option>
+              <option value="USD">USD</option>
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label>{{ t('th_notes') }}</label>
+          <input name="notes" id="txpay_notes">
+        </div>
+      </div>
+      <div class="modal-footer" style="justify-content:flex-end;gap:8px">
+        <button type="button" class="btn btn-outline" onclick="closeTxPayModal()">{{ t('btn_cancel') }}</button>
+        <button type="submit" class="btn btn-primary">{{ t('acc_save') }}</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+// The row itself opens the edit modal on click, so the "+ payment" button must
+// stop the event before it bubbles up to the <tr>.
+function openTxPayModal(btn, event) {
+  if (event) { event.stopPropagation(); }
+  var d = btn.closest('tr').dataset;
+  var amount = parseFloat(d.amount || 0);
+  var settled = parseFloat(d.settled || 0);
+  var remaining = amount - settled;
+
+  document.getElementById('txpay_parent_id').value = d.id;
+  document.getElementById('txpay_parent_desc').textContent =
+    (d.docId ? d.docId + ' — ' : '') + (d.description || '');
+  document.getElementById('txpay_parent_amount').textContent = fmtNum(amount);
+  document.getElementById('txpay_parent_settled').textContent = fmtNum(settled);
+  document.getElementById('txpay_parent_remaining').textContent = fmtNum(remaining);
+
+  document.getElementById('txpay_date').value = new Date().toISOString().slice(0, 10);
+  // Default to clearing the balance — the common case is one closing payment.
+  document.getElementById('txpay_amount').value = remaining > 0 ? remaining : '';
+  document.getElementById('txpay_notes').value = '';
+  setSelectValue('txpay_payment_type', d.paymentType || '');
+  setSelectValue('txpay_currency', d.currency || 'UZS');
+  document.getElementById('txPayOverlay').style.display = 'flex';
+}
+
+function fmtNum(n) {
+  if (!isFinite(n)) return '0';
+  return Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+}
+
+function closeTxPayModal() {
+  document.getElementById('txPayOverlay').style.display = 'none';
+}
+
+function saveTxPayment(e) {
+  e.preventDefault();
+  var parentId = document.getElementById('txpay_parent_id').value;
+  var fd = new FormData(document.getElementById('txPayForm'));
+  fetch('/api/transactions/' + parentId + '/payments', { method: 'POST', body: fd })
+    .then(function (r) { return r.json(); })
+    .then(function (res) {
+      if (res.status === 'ok') { location.reload(); }
+      else { alert(res.error || 'Error'); }
+    })
+    .catch(function () { alert('Error'); });
+  return false;
+}
+
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Escape') closeTxPayModal();
+});
+</script>

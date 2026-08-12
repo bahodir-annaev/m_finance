@@ -31,7 +31,10 @@ from .milestones import (
     set_milestone_staff, get_milestone_staff,
 )
 from .base import INCOME_TX_TYPES, INCOME_TX_SQL
-from .transactions import get_cash_flow_by_month, get_payment_summary, update_transaction
+from .transactions import (
+    get_cash_flow_by_month, get_payment_summary, update_transaction,
+    delete_transaction, add_transaction_payment, derive_status,
+)
 from .loans import get_all_loans, get_loan_detail, get_loan_summary
 from .dividends import get_all_dividends, get_dividend_summary, add_dividend
 from .dashboard import (
@@ -63,6 +66,7 @@ __all__ = [
     'set_milestone_staff', 'get_milestone_staff',
     'INCOME_TX_TYPES', 'INCOME_TX_SQL',
     'get_cash_flow_by_month', 'get_payment_summary', 'update_transaction',
+    'delete_transaction', 'add_transaction_payment', 'derive_status',
     'get_all_loans', 'get_loan_detail', 'get_loan_summary',
     'get_all_dividends', 'get_dividend_summary', 'add_dividend',
     'get_dashboard_data', 'get_burn_rate_and_runway', 'get_capacity_data', 'get_ar_aging',

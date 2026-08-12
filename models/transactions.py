@@ -1,6 +1,9 @@
-"""Cash flow and payment summary — reads from unified transactions table."""
+"""Cash flow, payment summary and follow-up payments — unified transactions table."""
+from datetime import datetime
+
 from .base import (
-    get_db, INCOME_TX_SQL, get_record, update_record, get_rate_for_date,
+    get_db, INCOME_TX_SQL, get_record, update_record, delete_record,
+    get_rate_for_date, write_audit_log,
 )
 
 
@@ -9,6 +12,107 @@ def _num(v):
         return float(v or 0)
     except (TypeError, ValueError):
         return 0.0
+
+
+def derive_status(amount, settled):
+    """Canonical status from committed vs settled: paid / partial / pending.
+
+    `settled` is the invoice's own paid plus any linked payment rows — not the
+    raw `paid` column. The single source of this rule; accounting_bp imports it.
+    """
+    if amount > 0 and settled >= amount:
+        return 'paid'
+    if settled > 0:
+        return 'partial'
+    return 'pending'
+
+
+def get_settled(conn, tx_id):
+    """Total cash against an invoice: its own `paid` + all its payment rows."""
+    row = conn.execute(
+        "SELECT t.paid + COALESCE(("
+        "  SELECT SUM(paid) FROM transactions WHERE parent_tx_id = t.id"
+        "), 0) AS settled FROM transactions t WHERE t.id = ?",
+        (tx_id,)
+    ).fetchone()
+    return _num(row['settled']) if row else 0.0
+
+
+def recompute_parent_status(conn, parent_id):
+    """Re-derive an invoice's status after its payment rows changed.
+
+    Does not commit — the caller owns the transaction boundary.
+    """
+    parent = conn.execute(
+        "SELECT amount FROM transactions WHERE id=?", (parent_id,)
+    ).fetchone()
+    if not parent:
+        return
+    status = derive_status(_num(parent['amount']), get_settled(conn, parent_id))
+    conn.execute(
+        "UPDATE transactions SET status=?, updated_at=? WHERE id=?",
+        (status, datetime.now().strftime('%Y-%m-%d %H:%M:%S'), parent_id)
+    )
+
+
+def add_transaction_payment(parent_id, data):
+    """Record a follow-up payment against a partially-paid transaction.
+
+    The payment is its own row in `transactions` — it is a real cash movement on
+    its own date, and booking it that way is what keeps cash flow by month right.
+    It carries amount=0 so the invoice's committed amount is never double counted,
+    and inherits direction/tx_type/project/phase from the invoice so that project
+    income, milestone actuals and the indirect pool pick it up unchanged.
+
+    Returns (new_row_id, None) on success or (None, error_key) on failure.
+    """
+    conn = get_db()
+    try:
+        parent = conn.execute(
+            "SELECT * FROM transactions WHERE id=?", (parent_id,)
+        ).fetchone()
+        if not parent:
+            return None, 'tx_pay_parent_missing'
+        # A payment row is a leaf: allowing chains would make `settled` recursive
+        # and every aggregation would have to walk the tree.
+        if parent['parent_tx_id']:
+            return None, 'tx_pay_on_payment'
+
+        pay_amount = _num(data.get('amount'))
+        if pay_amount <= 0:
+            return None, 'tx_pay_amount_err'
+
+        pay_date = (data.get('date') or '').strip() or datetime.now().strftime('%Y-%m-%d')
+        currency = data.get('currency') or parent['currency'] or 'UZS'
+        rate = _num(get_rate_for_date(pay_date))
+        # `paid` is always stored in UZS; the payment-date rate is kept alongside
+        # so the original foreign-currency figure stays recoverable.
+        paid_uzs = round(pay_amount * rate, 0) if currency == 'USD' else pay_amount
+
+        cur = conn.execute('''INSERT INTO transactions
+            (direction, tx_type, date, ref_id, doc_id, project_id, phase_id,
+             category_id, counterparty_id, description, client, responsible, paid_to,
+             amount, amount_usd, paid, currency, exchange_rate, payment_type,
+             notes, status, parent_tx_id)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+            (parent['direction'], parent['tx_type'], pay_date,
+             f"PAY-{datetime.now().strftime('%Y%m%d-%H%M%S')}",
+             parent['doc_id'], parent['project_id'], parent['phase_id'],
+             parent['category_id'], parent['counterparty_id'],
+             data.get('description') or parent['description'],
+             parent['client'], parent['responsible'], parent['paid_to'],
+             0, 0, paid_uzs, currency, rate or None,
+             data.get('payment_type') or parent['payment_type'] or 'bank',
+             data.get('notes') or '', 'paid', parent_id))
+        new_id = cur.lastrowid
+        recompute_parent_status(conn, parent_id)
+        conn.commit()
+    finally:
+        conn.close()
+
+    write_audit_log('create', 'transactions', new_id,
+                    context=f'payment of {paid_uzs} on transaction #{parent_id}')
+    return new_id, None
 
 
 def update_transaction(record_id, data):
@@ -22,23 +126,84 @@ def update_transaction(record_id, data):
     old = get_record('transactions', record_id)
     if not old:
         return False
+    data = dict(data)
+    parent_id = old.get('parent_tx_id')
+
+    if parent_id:
+        # A payment row carries no commitment of its own — the invoice already
+        # holds it. amount is forced to 0 here and not merely defaulted, because
+        # the shared edit modal posts every column: without this, editing a
+        # payment would double count in every SUM(amount) (project outsourcing /
+        # material cost, milestone `direct`, the expense tiles), none of which
+        # filter on parent_tx_id. Same reason amount_usd stays 0.
+        data['amount'] = 0
+        data['amount_usd'] = 0
+
     merged = {**old, **data}
     amount = _num(merged.get('amount'))
-    paid = _num(merged.get('paid'))
 
-    data = dict(data)
     # Keep the rate stored at entry time; backfill from the rate table if absent.
     rate = _num(old.get('exchange_rate')) or _num(get_rate_for_date(merged.get('date')))
     if rate > 0:
         data['exchange_rate'] = rate
-        data['amount_usd'] = round(amount / rate, 2) if amount > 0 else 0
-    if amount > 0 and paid >= amount:
+        if not parent_id:
+            data['amount_usd'] = round(amount / rate, 2) if amount > 0 else 0
+
+    if parent_id:
+        # A payment row settles itself in full; derive_status would read its
+        # amount=0 and wrongly call it 'partial'.
         data['status'] = 'paid'
-    elif paid > 0:
-        data['status'] = 'partial'
     else:
-        data['status'] = 'pending'
-    return update_record('transactions', record_id, data)
+        conn = get_db()
+        child_paid = _num(conn.execute(
+            "SELECT COALESCE(SUM(paid),0) AS s FROM transactions WHERE parent_tx_id=?",
+            (record_id,)
+        ).fetchone()['s'])
+        conn.close()
+        data['status'] = derive_status(amount, _num(merged.get('paid')) + child_paid)
+
+    ok = update_record('transactions', record_id, data)
+    if ok and parent_id:
+        conn = get_db()
+        recompute_parent_status(conn, parent_id)
+        conn.commit()
+        conn.close()
+    return ok
+
+
+def delete_transaction(record_id):
+    """Delete a transaction, keeping invoice/payment links consistent.
+
+    Deletes on `transactions` are hard deletes (no is_active column), so removing
+    an invoice that still has payment rows would orphan them — or trip the FK and
+    surface as a 500. Refuse it and say why. Removing a payment re-derives the
+    invoice's status.
+
+    Returns (True, None) or (False, error_key).
+    """
+    conn = get_db()
+    row = conn.execute(
+        "SELECT parent_tx_id FROM transactions WHERE id=?", (record_id,)
+    ).fetchone()
+    if not row:
+        conn.close()
+        return False, 'tx_del_not_found'
+    child_count = conn.execute(
+        "SELECT COUNT(*) AS n FROM transactions WHERE parent_tx_id=?", (record_id,)
+    ).fetchone()['n']
+    parent_id = row['parent_tx_id']
+    conn.close()
+
+    if child_count:
+        return False, 'tx_del_has_payments'
+    if not delete_record('transactions', record_id):
+        return False, 'tx_del_failed'
+    if parent_id:
+        conn = get_db()
+        recompute_parent_status(conn, parent_id)
+        conn.commit()
+        conn.close()
+    return True, None
 
 
 def get_cash_flow_by_month():

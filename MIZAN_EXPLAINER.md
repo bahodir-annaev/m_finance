@@ -359,8 +359,10 @@ The most important page in the app. A single URL handles eight distinct entry se
 
 #### `section = transaction` — add a financial transaction
 
-- **direction = `tashqi`** (external): creates an `external`-direction transaction in `transactions`. Links to a project. Calculates USD equivalent from current rate. Sets `status` = "To'langan" if `paid >= amount`, else "Kutilmoqda". Also writes a `transaction_lines` row.
+- **direction = `tashqi`** (external): creates an `external`-direction transaction in `transactions`. Links to a project. Calculates USD equivalent from current rate. Sets `status` to `paid` / `partial` / `pending` via `derive_status()`. (It does **not** write a `transaction_lines` row — that table is dead, see `models/base.py:705`.)
 - **direction = `kirish`** (internal): creates an `internal`-direction transaction. Used for salary disbursements, rent payments, etc.
+
+Once saved, a partially-paid transaction can receive **follow-up payments** from the `+ To'lov` button on `/external` and `/internal`. Each one is a new row in `transactions` linked back via `parent_tx_id`, carrying its own date and payment type, so cash flow reports it in the month the money actually moved.
 
 Fields: date, direction, tx_type, description, amount (UZS), paid (UZS), contract amount, responsible, paid_to, doc_id, payment_type (bank/cash), deadline, notes, currency, project.
 

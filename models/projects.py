@@ -19,9 +19,13 @@ def get_staff_billable_hours_for_project(project_id):
 def calculate_fx_gain_loss(project_id):
     conn = get_db()
     current_rate = get_current_usd_rate()
+    # Follow-up payment rows are excluded: the invoice already carries the full USD
+    # exposure in amount_usd, and a payment row (amount_usd = 0) would fall into the
+    # paid/tx_rate branch below and count the same principal a second time.
     rows = conn.execute('''
         SELECT amount, paid, amount_usd, currency, date, exchange_rate
         FROM transactions WHERE project_id=? AND currency='USD' AND direction='external'
+          AND parent_tx_id IS NULL
     ''', (project_id,)).fetchall()
     conn.close()
     fx_gain_loss = 0

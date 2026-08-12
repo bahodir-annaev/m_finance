@@ -3,18 +3,9 @@ from datetime import datetime
 from flask import Blueprint, request, redirect, flash
 from auth import require_role
 from utils import render_page, t, fmt
-from models import get_db, get_rate_for_date, get_all_loans
+from models import get_db, get_rate_for_date, get_all_loans, derive_status
 
 bp = Blueprint('accounting', __name__)
-
-
-def _derive_status(amount, paid):
-    """Canonical status from committed vs received: paid / partial / pending."""
-    if amount > 0 and paid >= amount:
-        return 'paid'
-    if paid > 0:
-        return 'partial'
-    return 'pending'
 
 
 def _upsert_salary(conn, staff_id, salary, premium, start_date):
@@ -101,7 +92,7 @@ def accounting_transactions():
                         ).fetchone()
                         if proj:
                             project_id = proj['id']
-                    status = _derive_status(amount_uzs, paid_uzs)
+                    status = derive_status(amount_uzs, paid_uzs)
                     conn.execute('''INSERT INTO transactions
                         (direction, tx_type, date, ref_id, doc_id, project_id, category_id,
                          description, client, responsible, paid_to,
@@ -126,7 +117,7 @@ def accounting_transactions():
                          responsible or None, paid_to or None,
                          contract_uzs, contract_usd, amount_uzs, amount_usd,
                          paid_uzs, currency, tx_exchange_rate, payment_type, notes,
-                         _derive_status(amount_uzs, paid_uzs)))
+                         derive_status(amount_uzs, paid_uzs)))
                     msg = f'<div class="alert alert-success">{t("acc_saved_internal")}</div>'
 
             conn.commit()

@@ -97,7 +97,14 @@ Core tables: `staff`, `salary_history`, `projects`, `project_hours`, `transactio
 
 `transactions.tx_type` values: `tushum`, `mizan_monthly`, `yakuniy_hisob` (external income — see `INCOME_TX_TYPES`); `outsourcing`, `material` (external expense); `maosh`, `premiya`, `ijara`, `kommunal`, `soliq`, `ovqat`, `litsenziya`, `malaka`, `overhead` (internal).
 
-`transactions.status` is canonical `pending` / `partial` / `paid`, always derived from `paid` vs `amount` (see `update_transaction()` in `models/transactions.py`); legacy `To'langan`/`Kutilmoqda` values are migrated on startup.
+`transactions.status` is canonical `pending` / `partial` / `paid`, always derived from **settled** vs `amount` via the single `derive_status()` in `models/transactions.py`; legacy `To'langan`/`Kutilmoqda` values are migrated on startup.
+
+**Follow-up payments (v6.2)** — a later payment on a partially-paid invoice is its own row in `transactions` with `parent_tx_id` pointing at the invoice, `amount = 0` and its own `date` / `payment_type` / `currency` / `exchange_rate`. It inherits `direction`, `tx_type`, `project_id` and `phase_id` from the invoice. Consequences:
+
+- **Settled** = the invoice's own `paid` + `SUM(children.paid)`. Every "is it fully paid?" question uses this, never raw `paid`. Use the `CHILD_PAID_JOIN` / `SETTLED_EXPR` fragments from `models/base.py` — comparing `paid < amount` would report a settled invoice as overdue.
+- `amount = 0` on payment rows is what keeps `SUM(amount)` (expense tiles, outsourcing/material cost, AP) from double counting; `SUM(paid)` sees each cash movement exactly once, on the date it happened.
+- Payment rows are excluded from `calculate_fx_gain_loss()` — the invoice already carries the full USD exposure in `amount_usd`.
+- Deleting an invoice that still has payment rows is refused (`delete_transaction()`); deleting a payment re-derives the invoice's status.
 
 ## Adding a new page
 
@@ -331,8 +338,9 @@ Replaces the legacy `external_transactions` and `internal_transactions` tables. 
 | `payment_type` | TEXT DEFAULT `bank` | `bank`, `naqd`, `karta`, `online`, `ichki` |
 | `deadline` | TEXT | Payment deadline (`YYYY-MM-DD`) |
 | `status` | TEXT DEFAULT `pending` | `pending`, `partial`, `paid`, `To'langan`, `Kutilmoqda` |
-| `supersedes_id` | INTEGER → `transactions.id` | Links to original if this is a correction |
-| `superseded_by_id` | INTEGER → `transactions.id` | Points to correction if this was superseded |
+| `parent_tx_id` | INTEGER → `transactions.id` | Set on a follow-up payment row; points at the invoice it settles. `NULL` on invoices |
+| `supersedes_id` | INTEGER → `transactions.id` | Links to original if this is a correction (declared but unused) |
+| `superseded_by_id` | INTEGER → `transactions.id` | Points to correction if this was superseded (declared but unused) |
 | `created_at` | TEXT | Row creation timestamp |
 | `updated_at` | TEXT | Last update timestamp |
 
@@ -428,6 +436,6 @@ For each project: PLAN = frozen `planned_*` columns, FACT = live recalculated fr
 
 **Capacity** = `production_staff × available_hours × kpi_months` (total) vs hours on active billable projects (booked). Turns red above 85%. (Known limitation: booked = historical hours, not future commitments — see USER_STORY_AND_UX_AUDIT.md A9.)
 
-**AR Aging** = for `transactions WHERE direction='external' AND tx_type IN INCOME_TX_TYPES AND paid < amount`, buckets the outstanding `amount − paid` by days since invoice date: 0–30, 31–60, 61–90, 90+. Anything over 60 days is "overdue".
+**AR Aging** = for `transactions WHERE direction='external' AND tx_type IN INCOME_TX_TYPES AND parent_tx_id IS NULL AND settled < amount`, buckets the outstanding `amount − settled` by days since invoice date: 0–30, 31–60, 61–90, 90+. Anything over 60 days is "overdue". `settled` includes follow-up payment rows — see `CHILD_PAID_JOIN` / `SETTLED_EXPR` in `models/base.py`.
 
 **FX gain/loss** = for each USD transaction: `amount_usd × (current_usd_rate − rate_stored_at_transaction_time)`, where `current_usd_rate` is the latest `exchange_rates` row (`get_current_usd_rate()`). Positive = UZS weakened (firm gains on USD holdings); negative = UZS strengthened.

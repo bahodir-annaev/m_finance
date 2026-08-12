@@ -30,7 +30,7 @@
               <option value="USD">USD</option>
             </select>
           </div>
-          <div class="field">
+          <div class="field tx-invoice-only">
             <label>{{ t('th_amount') }}</label>
             <input type="number" step="any" name="amount" id="tx_amount">
           </div>
@@ -167,6 +167,14 @@ function applyDirectionVisibility(dir) {
   });
 }
 
+// A follow-up payment row holds no commitment of its own — the invoice does.
+// The server forces its amount back to 0 on save, so don't offer the field.
+function applyPaymentVisibility(isPayment) {
+  document.querySelectorAll('#txEditForm .tx-invoice-only').forEach(function (el) {
+    el.style.display = isPayment ? 'none' : '';
+  });
+}
+
 function onDirChange() {
   var dir = document.getElementById('tx_direction').value;
   buildTxTypeOptions(dir, document.getElementById('tx_type').value);
@@ -195,6 +203,7 @@ function openTxModal(row) {
   buildPhaseOptions(d.projectId || '', d.phaseId || '');
   buildTxTypeOptions(dir, d.txType || '');
   applyDirectionVisibility(dir);
+  applyPaymentVisibility(!!d.parentTxId);
   document.getElementById('tx_unresolved_note').style.display = (d.unresolved === '1') ? '' : 'none';
   document.getElementById('txModalOverlay').style.display = 'flex';
 }

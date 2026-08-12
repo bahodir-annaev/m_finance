@@ -1,6 +1,9 @@
 """Dashboard aggregations, burn rate, capacity, AR aging."""
 from datetime import datetime, date
-from .base import get_db, get_setting, get_current_usd_rate, INCOME_TX_SQL
+from .base import (
+    get_db, get_setting, get_current_usd_rate, INCOME_TX_SQL,
+    CHILD_PAID_JOIN, SETTLED_EXPR,
+)
 from .staff import (
     count_staff_by_type, get_available_hours,
     get_admin_total_cost, get_total_overhead, calculate_hourly_rate,
@@ -75,10 +78,15 @@ def get_capacity_data():
 
 def get_ar_aging():
     conn = get_db()
+    # Outstanding is measured against the settled total, not the raw `paid`
+    # column — an invoice collected through follow-up payment rows is not overdue.
+    # Payment rows themselves carry amount=0 and are excluded as parents only.
     rows = conn.execute(f'''
-        SELECT date, amount, paid, project_id, description
-        FROM transactions
-        WHERE tx_type IN {INCOME_TX_SQL} AND direction = 'external' AND paid < amount
+        SELECT t.date, t.amount, {SETTLED_EXPR} AS settled, t.project_id, t.description
+        FROM transactions t
+        {CHILD_PAID_JOIN}
+        WHERE t.tx_type IN {INCOME_TX_SQL} AND t.direction = 'external'
+          AND t.parent_tx_id IS NULL AND {SETTLED_EXPR} < t.amount
     ''').fetchall()
     conn.close()
 
@@ -88,7 +96,7 @@ def get_ar_aging():
     overdue_items = []
 
     for r in rows:
-        outstanding = r['amount'] - r['paid']
+        outstanding = r['amount'] - r['settled']
         total_outstanding += outstanding
         try:
             tx_date = datetime.strptime(r['date'], '%Y-%m-%d').date()

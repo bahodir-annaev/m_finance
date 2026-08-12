@@ -36,7 +36,7 @@ _COL_PATTERNS_MIX = {
     # checked before 'expense_amount' — 'расход' is a substring of all three of these too
     'expense_type': ['вид расхода', 'harajat turi', 'expense type'],
     'notes': ['sharx', 'izoh', 'notes', 'comment', 'примечание', 'статья расходов'],
-    'expense_amount': ['расход', 'harajat', 'expense'],
+    'expense_amount': ['прочие расходы', 'расходы валюта', 'расход', 'harajat', 'expense'],
     'doc_id': ['hujjat', 'document', 'документ', 'doc'],
 }
 

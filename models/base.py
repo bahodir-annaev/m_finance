@@ -19,6 +19,20 @@ INCOME_TX_SQL = "(" + ",".join(f"'{t}'" for t in INCOME_TX_TYPES) + ")"
 # indirect cost pool when enabled.
 INDIRECT_POOL_EXCLUDED_TX_TYPES = ('maosh', 'soliq')
 
+# A follow-up payment on a partially-paid invoice is its own transactions row with
+# parent_tx_id pointing at the invoice and amount=0 (so SUM(amount) never double
+# counts). "Settled" is therefore the invoice's own paid plus its payment rows —
+# the number that drives status, AR aging and the receivable/payable tiles.
+# Every query that asks "is this fully paid?" must join and compare with these two
+# fragments; comparing raw paid < amount would report a settled invoice as overdue.
+# Both assume the transactions table is aliased `t`.
+CHILD_PAID_JOIN = (
+    "LEFT JOIN (SELECT parent_tx_id AS pid, COALESCE(SUM(paid),0) AS child_paid"
+    " FROM transactions WHERE parent_tx_id IS NOT NULL GROUP BY parent_tx_id)"
+    " cp ON cp.pid = t.id"
+)
+SETTLED_EXPR = "(t.paid + COALESCE(cp.child_paid, 0))"
+
 
 def get_db():
     conn = sqlite3.connect(DB_PATH)
@@ -570,6 +584,7 @@ def init_db():
         payment_type TEXT DEFAULT 'bank',
         deadline TEXT,
         status TEXT DEFAULT 'pending',
+        parent_tx_id INTEGER REFERENCES transactions(id),
         supersedes_id INTEGER REFERENCES transactions(id),
         superseded_by_id INTEGER REFERENCES transactions(id),
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -721,6 +736,11 @@ def init_db():
         "UPDATE transactions SET status='paid' WHERE status='To''langan'",
         "UPDATE transactions SET status='pending' WHERE status='Kutilmoqda'",
         "UPDATE transactions SET status='partial' WHERE status='Qisman'",
+        # v6.2 — follow-up payments: a later payment on a partially-paid invoice is
+        # its own transactions row linked back to the invoice. Existing rows get
+        # NULL, so settled == paid and every aggregation behaves exactly as before.
+        "ALTER TABLE transactions ADD COLUMN parent_tx_id INTEGER REFERENCES transactions(id)",
+        "CREATE INDEX IF NOT EXISTS idx_tx_parent ON transactions(parent_tx_id)",
     ]
     for sql in migrations:
         try:

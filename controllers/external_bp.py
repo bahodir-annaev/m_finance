@@ -3,7 +3,9 @@ from flask import Blueprint, request
 from flask_login import login_required
 from utils import render_page
 from models import get_db
-from models.base import INCOME_TX_SQL, INCOME_TX_TYPES
+from models.base import (
+    INCOME_TX_SQL, INCOME_TX_TYPES, CHILD_PAID_JOIN, SETTLED_EXPR,
+)
 
 bp = Blueprint('external', __name__)
 _VALID_PER_PAGE = {25, 50, 100}
@@ -76,19 +78,30 @@ def external_page():
 
     order_by = f"ORDER BY {_SORT_COLS[sort]} {direction.upper()}, t.id DESC"
     txs = conn.execute(
-        f"SELECT t.*, p.name as project_name FROM transactions t"
+        f"SELECT t.*, p.name as project_name,"
+        f" {SETTLED_EXPR} AS settled, t.amount - {SETTLED_EXPR} AS outstanding,"
+        f" par.doc_id AS parent_doc_id"
+        f" FROM transactions t"
         f" LEFT JOIN projects p ON t.project_id = p.id"
+        f" {CHILD_PAID_JOIN}"
+        f" LEFT JOIN transactions par ON par.id = t.parent_tx_id"
         f" {where} {order_by} LIMIT ? OFFSET ?",
         params + [per_page, offset]
     ).fetchall()
 
+    # Receivable/payable measure against the settled total (invoice `paid` plus its
+    # follow-up payment rows), so an invoice collected in instalments clears. The
+    # payment rows are excluded as parents — they carry amount=0 and no balance.
     agg = conn.execute(
         f"SELECT"
         f"  COALESCE(SUM(CASE WHEN t.tx_type IN {INCOME_TX_SQL} THEN t.paid ELSE 0 END),0),"
         f"  COALESCE(SUM(CASE WHEN t.tx_type NOT IN {INCOME_TX_SQL} THEN t.amount ELSE 0 END),0),"
-        f"  COALESCE(SUM(CASE WHEN t.tx_type IN {INCOME_TX_SQL} AND t.paid < t.amount THEN t.amount - t.paid ELSE 0 END),0),"
-        f"  COALESCE(SUM(CASE WHEN t.tx_type NOT IN {INCOME_TX_SQL} AND t.paid < t.amount THEN t.amount - t.paid ELSE 0 END),0)"
-        f" FROM transactions t LEFT JOIN projects p ON t.project_id = p.id {where}",
+        f"  COALESCE(SUM(CASE WHEN t.tx_type IN {INCOME_TX_SQL} AND t.parent_tx_id IS NULL"
+        f"       AND {SETTLED_EXPR} < t.amount THEN t.amount - {SETTLED_EXPR} ELSE 0 END),0),"
+        f"  COALESCE(SUM(CASE WHEN t.tx_type NOT IN {INCOME_TX_SQL} AND t.parent_tx_id IS NULL"
+        f"       AND {SETTLED_EXPR} < t.amount THEN t.amount - {SETTLED_EXPR} ELSE 0 END),0)"
+        f" FROM transactions t LEFT JOIN projects p ON t.project_id = p.id"
+        f" {CHILD_PAID_JOIN} {where}",
         params
     ).fetchone()
     total_income     = agg[0]

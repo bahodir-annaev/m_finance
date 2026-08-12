@@ -53,7 +53,7 @@
       <thead>
         <tr style="border-bottom:2px solid var(--border)">
           <th style="text-align:left;padding:8px">To'lov turi</th>
-          <th style="text-align:right;padding:8px">12-oy summa (UZS)</th>
+          <th style="text-align:right;padding:8px">{{ elapsed_months }}-oy summa (UZS)</th>
           <th style="text-align:right;padding:8px">Oylik o'rtacha (UZS)</th>
           <th style="text-align:right;padding:8px">Sanalar</th>
         </tr>
@@ -63,7 +63,7 @@
         <tr style="border-bottom:1px solid var(--border)">
           <td style="padding:8px">{{ item.tx_type }}</td>
           <td style="padding:8px;text-align:right">{{ fmt(item.total) }}</td>
-          <td style="padding:8px;text-align:right;font-weight:bold">{{ fmt(item.total / 12) }}</td>
+          <td style="padding:8px;text-align:right;font-weight:bold">{{ fmt(item.total / elapsed_months) }}</td>
           <td style="padding:8px;text-align:right">{{ item.count }}</td>
         </tr>
         {% endfor %}

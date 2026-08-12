@@ -392,16 +392,16 @@ def accounting_overhead():
     ).fetchall()
     conn.close()
 
-    from models.staff import get_indirect_pool_monthly, get_indirect_pool_breakdown
+    from models.staff import get_indirect_pool_info
 
-    pool_monthly = get_indirect_pool_monthly()
-    pool_breakdown = get_indirect_pool_breakdown()
+    pool_info = get_indirect_pool_info()
     static_total = sum(o['monthly_amount'] for o in overhead_list)
 
     return render_page('accounting_overhead', 'accounting_overhead.html',
         overhead_list=overhead_list,
-        pool_monthly=pool_monthly,
-        pool_breakdown=pool_breakdown,
+        pool_monthly=pool_info['monthly_average'],
+        pool_breakdown=pool_info['breakdown'],
+        elapsed_months=pool_info['elapsed_months'],
         static_total=static_total,
     )
 

@@ -188,6 +188,39 @@ def get_indirect_pool_breakdown():
     return [dict(r) for r in rows]
 
 
+def get_indirect_pool_info():
+    """Returns reconciliation view data: monthly average, breakdown, elapsed window."""
+    monthly = get_indirect_pool_monthly()
+    breakdown = get_indirect_pool_breakdown()
+
+    # Calculate elapsed_months to match what was used in pool calculation
+    from datetime import datetime, timedelta
+    from .base import INDIRECT_POOL_EXCLUDED_TX_TYPES
+
+    window_months = get_setting('indirect_pool_window_months') or 12
+    conn = get_db()
+    min_date = conn.execute(
+        "SELECT MIN(date) as d FROM transactions WHERE direction='internal' AND paid > 0"
+    ).fetchone()
+    conn.close()
+
+    elapsed_months = window_months
+    if min_date and min_date['d']:
+        earliest = datetime.strptime(min_date['d'], '%Y-%m-%d')
+        today = datetime.now()
+        elapsed_months = max(
+            1,
+            min(window_months, round((today - earliest).days / 30.44))
+        )
+
+    return {
+        'monthly_average': monthly,
+        'breakdown': breakdown,
+        'elapsed_months': elapsed_months,
+        'window_months': window_months,
+    }
+
+
 def _proportional_share(total_cost, staff_id):
     """Distribute total_cost across production staff proportional to current-period hours."""
     period = _get_latest_period()

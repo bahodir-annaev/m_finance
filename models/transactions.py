@@ -1,8 +1,9 @@
 """Cash flow, payment summary and follow-up payments — unified transactions table."""
+import sqlite3
 from datetime import datetime
 
 from .base import (
-    get_db, INCOME_TX_SQL, get_record, update_record, delete_record,
+    get_db, INCOME_TX_SQL, get_record, update_record, _write_audit,
     get_rate_for_date, write_audit_log,
 )
 
@@ -191,17 +192,31 @@ def delete_transaction(record_id):
     child_count = conn.execute(
         "SELECT COUNT(*) AS n FROM transactions WHERE parent_tx_id=?", (record_id,)
     ).fetchone()['n']
-    parent_id = row['parent_tx_id']
-    conn.close()
-
     if child_count:
+        conn.close()
         return False, 'tx_del_has_payments'
-    if not delete_record('transactions', record_id):
-        return False, 'tx_del_failed'
-    if parent_id:
-        conn = get_db()
-        recompute_parent_status(conn, parent_id)
+    parent_id = row['parent_tx_id']
+
+    try:
+        # Rows owned by this transaction go first, in the same DB transaction.
+        # `unresolved_imports.transaction_id` is NOT NULL with no ON DELETE action,
+        # so an imported row whose project/counterparty name never resolved makes
+        # the DELETE raise IntegrityError (FOREIGN KEY constraint failed) straight
+        # out to the route. `transaction_lines` cascades in the current schema but
+        # not in databases created before that clause existed — delete it here too
+        # rather than trusting the deployed FK. Neither means anything once the
+        # transaction is gone.
+        conn.execute("DELETE FROM transaction_lines WHERE transaction_id=?", (record_id,))
+        conn.execute("DELETE FROM unresolved_imports WHERE transaction_id=?", (record_id,))
+        conn.execute("DELETE FROM transactions WHERE id=?", (record_id,))
+        _write_audit(conn, 'delete', 'transactions', record_id, context='hard delete')
+        if parent_id:
+            recompute_parent_status(conn, parent_id)
         conn.commit()
+    except sqlite3.Error:
+        conn.rollback()
+        return False, 'tx_del_failed'
+    finally:
         conn.close()
     return True, None
 

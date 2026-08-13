@@ -36,16 +36,25 @@ _COL_PATTERNS_MIX = {
     # checked before 'expense_amount' — 'расход' is a substring of all three of these too
     'expense_type': ['вид расхода', 'harajat turi', 'expense type'],
     'notes': ['sharx', 'izoh', 'notes', 'comment', 'примечание', 'статья расходов'],
-    'expense_amount': ['прочие расходы', 'расходы валюта', 'расход', 'harajat', 'expense'],
+    # "прочие расходы" / "расходы валюта" always hold USD, whatever the cell's
+    # number format shows. Checked before 'expense_amount' — 'расход' is a
+    # substring of both, so the plain-UZS pattern would otherwise swallow them.
+    'expense_amount_usd': ['прочие расходы', 'расходы валюта'],
+    'expense_amount': ['расход', 'harajat', 'expense'],
     'doc_id': ['hujjat', 'document', 'документ', 'doc'],
 }
 
-# Fields that hold money — cast to float, and SUM rather than overwrite when more
-# than one column in a row maps to the same field (e.g. "расходы" + "прочие расходы").
+# Fields that hold money — cast to float.
 _NUMERIC_FIELDS = ('amount', 'paid', 'contract_uzs', 'contract_usd', 'amount_usd',
                     'contract_amount', 'income_amount', 'expense_amount',
                     'income_amount_usd', 'expense_amount_usd')
-_ACCUMULATE_FIELDS = ('income_amount', 'expense_amount', 'income_amount_usd', 'expense_amount_usd')
+# SUM rather than overwrite when more than one column in a row maps to the field.
+_ACCUMULATE_FIELDS = ('income_amount', 'income_amount_usd')
+# The expense columns ("расходы" in UZS vs "прочие расходы" / "расходы валюта" in
+# USD) are alternative statements of one row's expense, not additive components:
+# the first non-empty column on the row wins and later ones are ignored. UZS still
+# takes precedence over USD row-wide — that happens further down, in the mix branch.
+_FIRST_WINS_FIELDS = ('expense_amount', 'expense_amount_usd')
 
 # Sub-header tags that mark a merged "Приход"/"расходы" column's USD counterpart
 # (e.g. "сум" / "$" split under one merged label) rather than real transaction data.
@@ -231,7 +240,7 @@ def import_excel_data(filepath, sheet_name, target_table, column_mapping, header
                         val = str(val).strip() if val else ''
                     if db_field in _ACCUMULATE_FIELDS and db_field in data:
                         data[db_field] = (data[db_field] or 0) + (val or 0)
-                    else:
+                    elif not (db_field in _FIRST_WINS_FIELDS and data.get(db_field)):
                         data[db_field] = val
 
         if not data or not any(data.values()):

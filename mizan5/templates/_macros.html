@@ -1,0 +1,155 @@
+{# Shared UI macros. Every list view and every data-entry modal is built from
+   these, so the pattern stays identical across the app: a filter bar, a table,
+   a [+ New] button top-right, and one modal that serves both create and edit. #}
+
+{% macro status_badge(status, t) %}
+  {%- set cls = {'draft':'badge-draft','posted':'badge-posted','void':'badge-void',
+                 'open':'badge-open','soft_closed':'badge-closed','hard_closed':'badge-closed',
+                 'active':'badge-ok','completed':'badge-info','paused':'badge-warn',
+                 'planned':'badge-draft','in_progress':'badge-info','done':'badge-ok',
+                 'cancelled':'badge-void','ochiq':'badge-open','yopilgan':'badge-closed'}
+                .get(status,'badge-draft') -%}
+  {%- set label = {'draft':t('draft'),'posted':t('posted'),'void':t('void'),
+                   'open':t('period_open'),'soft_closed':t('period_soft_closed'),
+                   'hard_closed':t('period_hard_closed'),
+                   'active':t('project_active'),'completed':t('project_completed'),
+                   'paused':t('project_paused'),'planned':t('ms_planned'),
+                   'in_progress':t('ms_in_progress'),'done':t('ms_done'),
+                   'cancelled':t('ms_cancelled')}.get(status, status) -%}
+  <span class="badge {{ cls }}">{{ label }}</span>
+{% endmacro %}
+
+
+{% macro budget_badge(status, t) %}
+  {%- set map = {'over':('badge-bad', t('over_budget')),
+                 'under':('badge-ok', t('under_budget')),
+                 'border':('badge-warn', t('on_budget')),
+                 'noplan':('badge-draft', t('no_plan'))} -%}
+  {%- set cls, label = map.get(status, ('badge-draft', status)) -%}
+  <span class="badge {{ cls }}">{{ label }}</span>
+{% endmacro %}
+
+
+{# A modal dialog. Use with {% call %}: the caller supplies the form fields,
+   this supplies the shell, the hidden id field and the footer buttons. #}
+{% macro modal(id, title, action, t, submit_label=None, size=None, linegrid=False) %}
+<dialog id="{{ id }}" {% if linegrid %}data-linegrid="1"{% endif %}
+        {% if size %}style="max-width:{{ size }}"{% endif %}>
+  <form method="post" action="{{ action }}" data-create-action="{{ action }}">
+    <div class="modal-head">
+      <h3>{{ title }}</h3>
+      <button type="button" class="modal-close" onclick="closeModal('{{ id }}')"
+              aria-label="{{ t('close') }}">&times;</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" name="id" data-reset>
+      {{ caller() }}
+    </div>
+    <div class="modal-foot">
+      <button type="button" class="btn" onclick="closeModal('{{ id }}')">{{ t('cancel') }}</button>
+      <button type="submit" class="btn btn-primary">{{ submit_label or t('save') }}</button>
+    </div>
+  </form>
+</dialog>
+{% endmacro %}
+
+
+{# Header row for a list page: title on the left, [+ New] on the right. #}
+{% macro list_head(title, t, modal_id=None, new_label=None, extra=None) %}
+<div class="card-head">
+  <h2>{{ title }}</h2>
+  <div class="btn-row">
+    {{ extra or '' }}
+    {% if modal_id %}
+    <button class="btn btn-primary" onclick="openModal('{{ modal_id }}')">
+      + {{ new_label or t('new') }}
+    </button>
+    {% endif %}
+  </div>
+</div>
+{% endmacro %}
+
+
+{# Pencil button that reopens the same modal prefilled from a JSON payload. #}
+{% macro edit_btn(modal_id, row, t) %}
+<button class="btn btn-icon" title="{{ t('edit') }}"
+        data-row='{{ row|tojson }}' onclick="editRow('{{ modal_id }}', this)">&#9998;</button>
+{% endmacro %}
+
+
+{% macro money(value, fmt, decimals=0) %}
+<span class="num">{{ fmt(value, decimals) }}</span>
+{% endmacro %}
+
+
+{% macro signed(value, fmt) %}
+<span class="num {% if value > 0 %}pos{% elif value < 0 %}neg{% endif %}">
+  {{ '+' if value > 0 else '' }}{{ fmt(value) }}</span>
+{% endmacro %}
+
+
+{% macro empty_row(colspan, t) %}
+<tr><td colspan="{{ colspan }}" class="empty">{{ t('no_records') }}</td></tr>
+{% endmacro %}
+
+
+{# Counterparty / project / account pickers — plain selects so the form posts
+   an id with no client-side lookup. #}
+{% macro select_field(name, label, options, selected=None, blank=True,
+                      value_key='id', label_key='name', required=False) %}
+<div class="field">
+  <label>{{ label }}{% if required %} *{% endif %}</label>
+  <select name="{{ name }}" data-reset {% if required %}required{% endif %}>
+    {% if blank %}<option value="">—</option>{% endif %}
+    {% for o in options %}
+      <option value="{{ o[value_key] }}" {% if selected == o[value_key] %}selected{% endif %}>
+        {{ o[label_key] }}</option>
+    {% endfor %}
+  </select>
+</div>
+{% endmacro %}
+
+
+{% macro account_select(name, label, accounts, lang, blank=True) %}
+<div class="field">
+  <label>{{ label }}</label>
+  <select name="{{ name }}" data-reset>
+    {% if blank %}<option value="">—</option>{% endif %}
+    {% for a in accounts %}
+      <option value="{{ a.id }}">{{ a.code }} — {{ a['name_' ~ lang] or a.name_ru }}</option>
+    {% endfor %}
+  </select>
+</div>
+{% endmacro %}
+
+
+{% macro text_field(name, label, type='text', value='', required=False, attrs='') %}
+<div class="field">
+  <label>{{ label }}{% if required %} *{% endif %}</label>
+  <input type="{{ type }}" name="{{ name }}" value="{{ value }}" data-reset
+         data-default="{{ value }}" {% if required %}required{% endif %} {{ attrs|safe }}>
+</div>
+{% endmacro %}
+
+
+{# Date-range + search filter bar used by every list page. #}
+{% macro filter_bar(t, action, date_from=None, date_to=None, search=None, extra=None) %}
+<form method="get" action="{{ action }}" class="filters" style="padding:12px 16px;
+      border-bottom:1px solid var(--line)">
+  <div class="field">
+    <label>{{ t('date_from') }}</label>
+    <input type="date" name="date_from" value="{{ date_from or '' }}">
+  </div>
+  <div class="field">
+    <label>{{ t('date_to') }}</label>
+    <input type="date" name="date_to" value="{{ date_to or '' }}">
+  </div>
+  {{ extra or '' }}
+  <div class="field" style="min-width:180px">
+    <label>{{ t('search') }}</label>
+    <input type="search" name="q" value="{{ search or '' }}">
+  </div>
+  <button class="btn">{{ t('filter') }}</button>
+  <a class="btn" href="{{ action }}">{{ t('reset') }}</a>
+</form>
+{% endmacro %}

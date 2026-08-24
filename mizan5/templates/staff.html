@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block heading %}{{ t('staff_plural') }}{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-head"><h2>{{ t('staff_plural') }}</h2>
+    <div class="btn-row">
+      <button class="btn" onclick="openModal('salModal')">+ {{ t('base_salary') }}</button>
+      <button class="btn btn-primary" onclick="openModal('staffModal')">+ {{ t('new') }}</button>
+    </div></div>
+  <div class="table-wrap"><table>
+    <thead><tr>
+      <th>{{ t('staff_code') }}</th><th>{{ t('name') }}</th><th>{{ t('role') }}</th>
+      <th>{{ t('department') }}</th><th>{{ t('staff_type') }}</th>
+      <th class="num">{{ t('base_salary') }}</th><th class="num">{{ t('premium') }}</th>
+      <th class="num">{{ t('cost_rate') }}</th><th class="num">{{ t('billing_rate') }}</th>
+      <th>{{ t('status') }}</th><th style="width:1%"></th>
+    </tr></thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td class="muted nowrap">{{ r.staff_code or '' }}</td>
+        <td><b>{{ r.name }}</b>{% if r.full_name %}
+          <div class="faint" style="font-size:.75rem">{{ r.full_name }}</div>{% endif %}</td>
+        <td class="muted">{{ r.role }}</td>
+        <td class="muted">{{ r.department }}</td>
+        <td><span class="badge {% if r.staff_type=='production' %}badge-ok{% else %}badge-info{% endif %}">
+          {{ t('type_' ~ r.staff_type) }}</span></td>
+        <td class="num">{{ fmt(r.base_salary) if r.base_salary else '—' }}</td>
+        <td class="num muted">{{ fmt(r.premium) if r.premium else '' }}</td>
+        <td class="num">{{ fmt(r.cost_rate) if r.cost_rate else '' }}</td>
+        <td class="num muted">{{ fmt(r.billing_rate) if r.billing_rate else '' }}</td>
+        <td>{% if r.is_active %}<span class="badge badge-ok">{{ t('yes') }}</span>
+            {% else %}<span class="badge badge-draft">{{ t('no') }}</span>{% endif %}</td>
+        <td>{{ m.edit_btn('staffModal', r, t) }}</td>
+      </tr>
+      {% else %}{{ m.empty_row(11, t) }}{% endfor %}
+    </tbody>
+  </table></div>
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>{{ t('nav_salaries') }}</h2></div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>{{ t('staff') }}</th><th>{{ t('salary_from') }}</th><th>{{ t('date_to') }}</th>
+      <th class="num">{{ t('base_salary') }}</th><th class="num">{{ t('premium') }}</th>
+      <th class="num">{{ t('gross_salary') }}</th></tr></thead>
+    <tbody>
+      {% for s in salary_history %}
+      <tr><td>{{ s.staff_name }}</td><td class="nowrap">{{ s.start_date }}</td>
+        <td class="nowrap muted">{{ s.end_date or '—' }}</td>
+        <td class="num">{{ fmt(s.base_salary) }}</td>
+        <td class="num muted">{{ fmt(s.premium) }}</td>
+        <td class="num"><b>{{ fmt(s.base_salary + s.premium) }}</b></td></tr>
+      {% else %}{{ m.empty_row(6, t) }}{% endfor %}
+    </tbody>
+  </table></div>
+</div>
+
+{% call m.modal('staffModal', t('staff'), '/staff/save', t) %}
+  <div class="grid grid-2">
+    {{ m.text_field('name', t('name'), required=True) }}
+    {{ m.text_field('full_name', t('full_name')) }}
+    <div class="field"><label>{{ t('role') }} *</label>
+      <input name="role" list="roleList" data-reset required>
+      <datalist id="roleList">{% for r in roles %}<option value="{{ r.label_uz }}">{% endfor %}</datalist></div>
+    <div class="field"><label>{{ t('department') }} *</label>
+      <input name="department" list="deptList" data-reset required>
+      <datalist id="deptList">{% for d in departments %}<option value="{{ d.label_uz }}">{% endfor %}</datalist></div>
+    <div class="field"><label>{{ t('staff_type') }}</label>
+      <select name="staff_type" data-reset>
+        <option value="production">{{ t('type_production') }}</option>
+        <option value="admin">{{ t('type_admin') }}</option></select>
+      <div class="hint">{{ t('type_production') }} &rarr; {{ t('cost_rate') }}</div></div>
+    {{ m.text_field('hire_date', t('hire_date'), type='date') }}
+    {{ m.text_field('termination_date', t('termination_date'), type='date') }}
+  </div>
+  <div class="checkbox"><input type="checkbox" name="is_active" id="stActive" value="1" checked>
+    <label for="stActive">{{ t('project_active') }}</label></div>
+{% endcall %}
+
+{% call m.modal('salModal', t('base_salary'), '/staff/salary', t) %}
+  <div class="grid grid-2">
+    <div class="field"><label>{{ t('staff') }} *</label>
+      <select name="staff_id" data-reset required>
+        {% for r in rows if r.is_active %}<option value="{{ r.id }}">{{ r.name }}</option>{% endfor %}
+      </select></div>
+    {{ m.text_field('start_date', t('salary_from'), type='date', required=True) }}
+    {{ m.text_field('base_salary', t('base_salary'), type='number', attrs='step="1000"') }}
+    {{ m.text_field('premium', t('premium'), type='number', attrs='step="1000"') }}
+  </div>
+  <p class="hint">{{ t('salary_from') }} — {{ t('nav_salaries') }}</p>
+{% endcall %}
+{% endblock %}

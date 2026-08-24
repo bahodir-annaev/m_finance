@@ -1,0 +1,281 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block heading %}{{ project.name }}{% endblock %}
+{% block topbar_extra %}
+  {{ m.status_badge(project.status, t) }}
+  {% if baseline.is_stale %}<span class="badge badge-warn">{{ t('plan_stale') }}</span>{% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="tiles">
+  <div class="tile"><div class="label">{{ t('contract_amount') }}</div>
+    <div class="value">{{ fmt(project.contract_amount) }}</div>
+    <div class="sub">{{ project.client_name or '—' }}</div></div>
+  <div class="tile"><div class="label">{{ t('revenue') }}</div>
+    <div class="value">{{ fmt(cost.invoiced) }}</div>
+    <div class="sub">{{ t('outstanding') }}: {{ fmt(cost.outstanding) }}</div></div>
+  <div class="tile"><div class="label">{{ t('cost_rate') }}</div>
+    <div class="value">{{ fmt(cost.total_cost) }}</div>
+    <div class="sub">{{ t('hours') }}: {{ fmt(cost.hours, 1) }}</div></div>
+  <div class="tile {% if cost.profit >= 0 %}ok{% else %}bad{% endif %}">
+    <div class="label">{{ t('profit') }}</div>
+    <div class="value">{{ fmt(cost.profit) }}</div>
+    <div class="sub">{{ fmt(cost.margin_pct, 1) }}%</div></div>
+  <div class="tile"><div class="label">{{ t('completion') }}</div>
+    <div class="value">{{ fmt(cost.completion_ratio * 100, 0) }}%</div>
+    <div class="sub">{{ t('revenue') }}: {{ fmt(cost.earned_revenue) }}</div></div>
+</div>
+
+{# ── Plan & Price ─────────────────────────────────────────────────────── #}
+<div class="card">
+  <div class="card-head">
+    <h2>{{ t('plan') }} &amp; {{ t('target_price') }}</h2>
+    <div class="btn-row">
+      {% if not milestones %}
+      <form method="post" action="/projects/{{ project.id }}/schedule">
+        <button class="btn btn-sm">+ {{ t('milestones') }} (6)</button></form>
+      {% endif %}
+      <form method="post" action="/projects/{{ project.id }}/prices">
+        <button class="btn btn-sm">{{ t('apply_suggested') }}</button></form>
+      <form method="post" action="/projects/{{ project.id }}/freeze">
+        <button class="btn btn-sm btn-primary">{{ t('freeze_plan') }}</button></form>
+      <button class="btn btn-sm btn-primary" onclick="openModal('msModal')">+ {{ t('milestone') }}</button>
+    </div>
+  </div>
+
+  <div class="card-body" style="border-bottom:1px solid var(--line)">
+    <form method="post" action="/projects/{{ project.id }}/risk" class="filters">
+      <div class="field"><label>{{ t('risk_deadline') }}</label>
+        <select name="deadline_months">
+          <option value="10" {% if risk.deadline_bucket==10 %}selected{% endif %}>&gt; 8</option>
+          <option value="6" {% if risk.deadline_bucket==6 %}selected{% endif %}>4–8</option>
+          <option value="3" {% if risk.deadline_bucket==3 %}selected{% endif %}>&lt; 4</option>
+        </select></div>
+      <div class="field"><label>{{ t('risk_client_type') }}</label>
+        <select name="client_type">
+          {% for c in client_types %}
+          <option value="{{ c }}" {% if risk.client_type==c %}selected{% endif %}>{{ t('client_' ~ c) }}</option>
+          {% endfor %}</select></div>
+      <div class="field"><label>{{ t('risk_complexity') }}</label>
+        <select name="complexity">
+          {% for c in complexities %}
+          <option value="{{ c }}" {% if risk.complexity==c %}selected{% endif %}>{{ t('complexity_' ~ c) }}</option>
+          {% endfor %}</select></div>
+      <div class="field"><label>{{ t('risk_currency') }}</label>
+        <select name="risk_currency">
+          <option value="UZS" {% if risk.currency=='UZS' %}selected{% endif %}>UZS</option>
+          <option value="USD" {% if risk.currency=='USD' %}selected{% endif %}>USD</option>
+        </select></div>
+      <button class="btn">{{ t('save') }}</button>
+      <div class="field" style="margin-left:auto">
+        <label>{{ t('risk_coefficient') }}</label>
+        <div style="font-size:1.2rem;font-weight:600;color:var(--brand)">
+          {{ risk.risk_coeff }}<span class="faint" style="font-size:.8rem">
+            &nbsp;({{ t('risk_score') }} {{ risk.risk_score }})</span></div></div>
+    </form>
+  </div>
+
+  <div class="table-wrap"><table>
+    <thead><tr>
+      <th>{{ t('milestone') }}</th><th>{{ t('work_type') }}</th>
+      <th>{{ t('start_date') }}</th><th class="num">{{ t('planned_hours') }}</th>
+      <th class="num">{{ t('planned_cost') }}</th>
+      <th class="num">{{ t('planned_outsourcing') }}</th>
+      <th class="num">{{ t('expense') }}</th>
+      <th class="num">{{ t('minimum_price') }}</th>
+      <th class="num">{{ t('target_price') }}</th>
+      <th class="num">{{ t('planned_revenue') }}</th>
+      <th class="num">{{ t('variance') }}</th>
+      <th>{{ t('status') }}</th><th style="width:1%"></th>
+    </tr></thead>
+    <tbody>
+      {% for r in plan.rows if plan %}
+        {% set ms = (milestones | selectattr('id', 'equalto', r.id) | list | first) %}
+        <tr>
+          <td><b>{{ r.name }}</b>
+            {% if ms and ms.staff %}<div class="faint" style="font-size:.73rem">
+              {% for s in ms.staff %}{{ s.name }} {{ fmt(s.est_hours, 0) }}h{% if not loop.last %} · {% endif %}{% endfor %}
+            </div>{% endif %}</td>
+          <td class="muted">{{ ms.work_type if ms else '' }}</td>
+          <td class="nowrap muted">{{ ms.start_date or '—' if ms else '' }}</td>
+          <td class="num">{{ fmt(r.hours, 1) }}</td>
+          <td class="num">{{ fmt(r.labor) }}</td>
+          <td class="num muted">{{ fmt(r.outsourcing + r.material) }}</td>
+          <td class="num">{{ fmt(r.expense) }}</td>
+          <td class="num muted">{{ fmt(r.minimum) }}</td>
+          <td class="num">{{ fmt(r.suggested) }}</td>
+          <td class="num"><b>{{ fmt(r.price) }}</b>
+            {% if r.is_overridden %}<span class="badge badge-warn">!</span>{% endif %}</td>
+          <td class="num {% if r.margin_pct >= 0 %}pos{% else %}neg{% endif %}">
+            {{ fmt(r.margin_pct, 1) }}%</td>
+          <td>{% if ms %}{{ m.status_badge(ms.status, t) }}
+            {% if ms.is_late %}<span class="badge badge-bad">!</span>{% endif %}{% endif %}</td>
+          <td class="nowrap">
+            {% if ms %}{{ m.edit_btn('msModal', {
+              'id': ms.id, 'name': ms.name, 'work_type': ms.work_type,
+              'start_date': ms.start_date, 'end_date': ms.end_date,
+              'planned_outsourcing': ms.planned_outsourcing,
+              'planned_material': ms.planned_material,
+              'planned_revenue': ms.planned_revenue,
+              'completion_percent': ms.completion_percent,
+              'status': ms.status, 'notes': ms.notes}, t) }}
+            <form method="post" style="display:inline"
+                  action="/projects/{{ project.id }}/milestone/{{ ms.id }}/delete"
+                  onsubmit="return confirm('{{ t('confirm_delete') }}')">
+              <button class="btn btn-icon">&times;</button></form>
+            {% endif %}
+          </td>
+        </tr>
+      {% else %}
+        {{ m.empty_row(13, t) }}
+      {% endfor %}
+    </tbody>
+    {% if plan and plan.rows %}
+    <tfoot>
+      <tr class="total-row">
+        <td colspan="3">{{ t('total') }} — {{ plan.milestone_count }}</td>
+        <td class="num">{{ fmt(plan.total_hours, 1) }}</td>
+        <td class="num">{{ fmt(plan.total_labor) }}</td>
+        <td class="num">{{ fmt(plan.total_outsourcing + plan.total_material) }}</td>
+        <td class="num">{{ fmt(plan.total_expense) }}</td>
+        <td class="num">{{ fmt(plan.minimum_contract) }}</td>
+        <td class="num"><b>{{ fmt(plan.target_contract) }}</b></td>
+        <td class="num"><b>{{ fmt(plan.plan_revenue_total) }}</b></td>
+        <td class="num {% if plan.plan_margin_pct >= 0 %}pos{% else %}neg{% endif %}">
+          {{ fmt(plan.plan_margin_pct, 1) }}%</td>
+        <td colspan="2"></td>
+      </tr>
+      <tr>
+        <td colspan="7" class="muted">{{ t('premium_price') }} / USD</td>
+        <td class="num muted">{{ fmt(plan.minimum_usd, 0) }} $</td>
+        <td class="num muted">{{ fmt(plan.target_usd, 0) }} $</td>
+        <td class="num muted">{{ fmt(plan.premium_contract) }}</td>
+        <td colspan="3"></td>
+      </tr>
+    </tfoot>
+    {% endif %}
+  </table></div>
+
+  {% if baseline.is_frozen %}
+  <div class="card-body" style="border-top:1px solid var(--line)">
+    <div class="split">
+      <div><b>{{ t('plan_frozen') }}</b> {{ baseline.plan_frozen_date }}
+        <div class="hint">{{ t('planned_cost') }}: {{ fmt(baseline.planned_cost) }} ·
+          {{ t('planned_revenue') }}: {{ fmt(baseline.planned_revenue) }}</div></div>
+      {% if baseline.is_stale %}
+      <div><span class="badge badge-warn">{{ t('plan_stale') }}</span>
+        <div class="hint">{{ t('variance') }}: {{ fmt_signed(baseline.d_expense) }}
+          / {{ fmt_signed(baseline.d_revenue) }}</div></div>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+{# ── Actuals ──────────────────────────────────────────────────────────── #}
+<div class="split">
+  <div class="card">
+    <div class="card-head"><h2>{{ t('staff_plural') }}</h2></div>
+    <div class="card-body tight"><table>
+      <thead><tr><th>{{ t('name') }}</th><th class="num">{{ t('hours') }}</th>
+        <th class="num">{{ t('cost_rate') }}</th><th class="num">{{ t('total') }}</th></tr></thead>
+      <tbody>
+        {% for s in cost.staff_breakdown %}
+        <tr><td>{{ s.name }}<span class="faint"> · {{ s.role }}</span></td>
+          <td class="num">{{ fmt(s.hours, 1) }}</td>
+          <td class="num muted">{{ fmt(s.cost_rate) }}</td>
+          <td class="num">{{ fmt(s.cost) }}</td></tr>
+        {% else %}{{ m.empty_row(4, t) }}{% endfor %}
+        <tr class="total-row"><td>{{ t('total') }}</td>
+          <td class="num">{{ fmt(cost.hours, 1) }}</td><td></td>
+          <td class="num">{{ fmt(cost.labor) }}</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h2>{{ t('documents') }}</h2></div>
+    <div class="card-body tight" style="max-height:340px;overflow-y:auto"><table>
+      <thead><tr><th>{{ t('date') }}</th><th>{{ t('doc_number') }}</th>
+        <th class="num">{{ t('total') }}</th><th>{{ t('status') }}</th></tr></thead>
+      <tbody>
+        {% for d in documents %}
+        <tr><td class="nowrap muted">{{ d.date }}</td>
+          <td><a href="/documents/{{ d.id }}">{{ d.number }}</a>
+            <div class="faint" style="font-size:.72rem">{{ t('doc_' ~ d.doc_type) }}</div></td>
+          <td class="num">{{ fmt(d.total) }}</td>
+          <td>{{ m.status_badge(d.status, t) }}</td></tr>
+        {% else %}{{ m.empty_row(4, t) }}{% endfor %}
+      </tbody>
+    </table></div>
+  </div>
+</div>
+
+{# ── Milestone modal with its employee-hours grid ─────────────────────── #}
+{% call m.modal('msModal', t('milestone'), '/projects/' ~ project.id ~ '/milestone', t,
+                size='820px') %}
+  <input type="hidden" name="has_staff_grid" value="1">
+  <div class="grid grid-2">
+    {{ m.text_field('name', t('name'), required=True) }}
+    <div class="field"><label>{{ t('work_type') }}</label>
+      <select name="work_type" data-reset><option value="">—</option>
+        {% for w in work_types %}<option value="{{ w.code }}">{{ w.label_uz }}</option>{% endfor %}
+      </select></div>
+    {{ m.text_field('start_date', t('start_date'), type='date') }}
+    {{ m.text_field('end_date', t('end_date'), type='date') }}
+    {{ m.text_field('planned_outsourcing', t('planned_outsourcing'), type='number', attrs='step="1000"') }}
+    {{ m.text_field('planned_material', t('planned_material'), type='number', attrs='step="1000"') }}
+    {{ m.text_field('planned_revenue', t('planned_revenue'), type='number', attrs='step="1000"') }}
+    {{ m.text_field('completion_percent', t('completion') ~ ' %', type='number', attrs='step="1" max="100"') }}
+    <div class="field"><label>{{ t('status') }}</label>
+      <select name="status" data-reset>
+        {% for s in ('planned','in_progress','done','cancelled') %}
+        <option value="{{ s }}">{{ t('ms_' ~ s) }}</option>{% endfor %}</select></div>
+  </div>
+
+  <div class="section-title">{{ t('staff_plural') }} — {{ t('planned_hours') }}</div>
+  <div id="msGrid" class="linegrid-wrap">
+    <table class="linegrid">
+      <thead><tr><th style="width:60%">{{ t('staff') }}</th>
+        <th style="width:22%">{{ t('hours') }}</th>
+        <th style="width:16%">{{ t('cost_rate') }}</th><th style="width:1%"></th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <template>
+      <tr>
+        <td><select name="ms_staff_id" data-f="staff_id" onchange="showRate(this)">
+          <option value="">—</option>
+          {% for s in staff_rates %}
+          <option value="{{ s.id }}" data-rate="{{ s.cost_rate }}">
+            {{ s.name }} — {{ s.role }}</option>
+          {% endfor %}
+        </select></td>
+        <td><input name="ms_est_hours" data-f="est_hours" type="number" step="1"></td>
+        <td class="num muted rate-cell">—</td>
+        <td><button type="button" class="del" onclick="removeLine(this)">&times;</button></td>
+      </tr>
+    </template>
+  </div>
+  <div class="grid-actions">
+    <button type="button" class="btn btn-sm" onclick="addLine('msGrid')">+ {{ t('add_line') }}</button>
+    <span class="hint">{{ t('planned_cost') }} = {{ t('hours') }} × {{ t('cost_rate') }}</span>
+  </div>
+
+  {{ m.text_field('notes', t('notes')) }}
+{% endcall %}
+
+<script>
+/* Show the chosen employee's snapshotted cost rate next to the hours box, so
+   the planner can see what a row costs before saving it. */
+function showRate(sel){
+  const opt = sel.options[sel.selectedIndex];
+  const cell = sel.closest('tr').querySelector('.rate-cell');
+  const rate = opt ? parseFloat(opt.dataset.rate || 0) : 0;
+  cell.textContent = rate ? rate.toLocaleString('en-US', {maximumFractionDigits: 0}) : '—';
+}
+document.addEventListener('DOMContentLoaded', () => {
+  const grid = document.getElementById('msGrid');
+  if (grid && !grid.querySelector('tbody').children.length) addLine('msGrid');
+});
+</script>
+{% endblock %}

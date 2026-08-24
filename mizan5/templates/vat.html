@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block heading %}{{ t('nav_vat') }}{% endblock %}
+
+{% block content %}
+<div class="tiles">
+  <div class="tile"><div class="label">{{ t('vat_output') }}</div>
+    <div class="value">{{ fmt(vat.output_vat) }}</div><div class="sub">6410.1</div></div>
+  <div class="tile"><div class="label">{{ t('vat_input') }}</div>
+    <div class="value">{{ fmt(vat.input_vat) }}</div><div class="sub">4410</div></div>
+  <div class="tile {% if vat.payable > 0 %}bad{% else %}ok{% endif %}">
+    <div class="label">{{ t('vat_payable') }}</div>
+    <div class="value">{{ fmt(vat.payable) }}</div></div>
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>{{ date_from }} — {{ date_to }}</h2>
+    <button class="btn btn-sm" onclick="window.print()">{{ t('print') }}</button></div>
+  <form method="get" class="filters" style="padding:12px 16px;border-bottom:1px solid var(--line)">
+    <div class="field"><label>{{ t('date_from') }}</label>
+      <input type="date" name="date_from" value="{{ date_from }}"></div>
+    <div class="field"><label>{{ t('date_to') }}</label>
+      <input type="date" name="date_to" value="{{ date_to }}"></div>
+    <button class="btn">{{ t('filter') }}</button>
+  </form>
+  <div class="table-wrap"><table>
+    <thead><tr><th>{{ t('doc_number') }}</th><th>{{ t('date') }}</th>
+      <th>{{ t('counterparty') }}</th><th>ИНН</th>
+      <th class="num">{{ t('net_amount') }}</th><th class="num">{{ t('vat') }}</th>
+      <th class="num">{{ t('total') }}</th></tr></thead>
+    <tbody>
+      <tr class="group-row"><td colspan="7">{{ t('vat_output') }} — {{ t('nav_sales_invoices') }}</td></tr>
+      {% for d in vat.sales %}
+      <tr><td><a href="/documents/{{ d.id }}">{{ d.number }}</a></td>
+        <td class="nowrap">{{ d.date }}</td><td>{{ d.counterparty_name or '—' }}</td>
+        <td class="muted">{{ d.inn or '' }}</td>
+        <td class="num">{{ fmt(d.subtotal) }}</td><td class="num">{{ fmt(d.vat_amount) }}</td>
+        <td class="num">{{ fmt(d.total) }}</td></tr>
+      {% else %}<tr><td colspan="7" class="empty">{{ t('no_records') }}</td></tr>{% endfor %}
+
+      <tr class="group-row"><td colspan="7">{{ t('vat_input') }} — {{ t('nav_purchase_invoices') }}</td></tr>
+      {% for d in vat.purchases %}
+      <tr><td><a href="/documents/{{ d.id }}">{{ d.number }}</a></td>
+        <td class="nowrap">{{ d.date }}</td><td>{{ d.counterparty_name or '—' }}</td>
+        <td class="muted">{{ d.inn or '' }}</td>
+        <td class="num">{{ fmt(d.subtotal) }}</td><td class="num">{{ fmt(d.vat_amount) }}</td>
+        <td class="num">{{ fmt(d.total) }}</td></tr>
+      {% else %}<tr><td colspan="7" class="empty">{{ t('no_records') }}</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+</div>
+{% endblock %}

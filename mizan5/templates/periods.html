@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block heading %}{{ t('nav_periods') }}{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-head"><h2>{{ t('fx_revaluation') }}</h2>
+    <form method="post" action="/periods/revalue" class="btn-row">
+      <input type="date" name="as_of" value="{{ today }}" style="width:auto">
+      <button class="btn btn-sm">{{ t('fx_revaluation') }}</button></form></div>
+  <div class="card-body tight"><table>
+    <thead><tr><th>{{ t('account') }}</th><th>{{ t('currency') }}</th>
+      <th class="num">{{ t('amount') }}</th><th class="num">{{ t('balance') }}</th>
+      <th class="num">{{ t('rate') }}</th><th class="num">{{ t('variance') }}</th></tr></thead>
+    <tbody>
+      {% for p in fx.positions %}
+      <tr><td>{{ p.code }} — {{ p['name_' ~ lang] or p.name_ru }}</td>
+        <td>{{ p.currency }}</td>
+        <td class="num">{{ fmt(p.amount_cur, 2) }}</td>
+        <td class="num">{{ fmt(p.book_uzs) }}</td>
+        <td class="num muted">{{ fmt(p.current_uzs) }}</td>
+        <td class="num {% if p.difference >= 0 %}pos{% else %}neg{% endif %}">
+          {{ fmt(p.difference) }}</td></tr>
+      {% else %}{{ m.empty_row(6, t) }}{% endfor %}
+    </tbody>
+  </table></div>
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>{{ t('nav_periods') }}</h2>
+    <span class="hint">{{ t('period_close_warning') }}</span></div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>{{ t('period') }}</th><th>{{ t('status') }}</th>
+      <th class="num">{{ t('entry') }}</th>
+      <th class="num">{{ t('income') }}</th><th class="num">{{ t('expense') }}</th>
+      <th class="num">{{ t('profit') }}</th><th>{{ t('actions') }}</th></tr></thead>
+    <tbody>
+      {% for p in periods %}
+      <tr>
+        <td><b>{{ p.code }}</b></td>
+        <td>{{ m.status_badge(p.status, t) }}</td>
+        <td class="num muted">{{ p.entries }}</td>
+        <td class="num">{{ fmt(p.income) }}</td>
+        <td class="num">{{ fmt(p.expense) }}</td>
+        <td class="num {% if p.profit >= 0 %}pos{% else %}neg{% endif %}">{{ fmt(p.profit) }}</td>
+        <td class="nowrap">
+          {% if p.status == 'open' %}
+          <form method="post" action="/periods/close" style="display:inline"
+                onsubmit="return confirm('{{ t('period_close_warning') }}')">
+            <input type="hidden" name="period" value="{{ p.code }}">
+            <button class="btn btn-sm">{{ t('close_period') }}</button></form>
+          {% else %}
+          <form method="post" action="/periods/reopen" style="display:inline">
+            <input type="hidden" name="period" value="{{ p.code }}">
+            <button class="btn btn-sm">{{ t('reopen_period') }}</button></form>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}{{ m.empty_row(7, t) }}{% endfor %}
+    </tbody>
+  </table></div>
+</div>
+{% endblock %}

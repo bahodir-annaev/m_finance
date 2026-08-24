@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block heading %}{{ data.account.code }} — {{ data.account['name_' ~ lang] or data.account.name_ru }}{% endblock %}
+
+{% block content %}
+<div class="tiles">
+  <div class="tile"><div class="label">{{ t('opening_balance') }}</div>
+    <div class="value">{{ fmt(data.opening) }}</div></div>
+  <div class="tile"><div class="label">{{ t('debit') }}</div>
+    <div class="value">{{ fmt(data.total_debit) }}</div></div>
+  <div class="tile"><div class="label">{{ t('credit') }}</div>
+    <div class="value">{{ fmt(data.total_credit) }}</div></div>
+  <div class="tile brand"><div class="label">{{ t('closing_balance') }}</div>
+    <div class="value">{{ fmt(data.closing) }}</div></div>
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>{{ t('account_card') }}</h2>
+    <a class="btn btn-sm" href="/accounts">{{ t('back') }}</a></div>
+  <form method="get" class="filters" style="padding:12px 16px;border-bottom:1px solid var(--line)">
+    <div class="field"><label>{{ t('date_from') }}</label>
+      <input type="date" name="date_from" value="{{ date_from }}"></div>
+    <div class="field"><label>{{ t('date_to') }}</label>
+      <input type="date" name="date_to" value="{{ date_to }}"></div>
+    <button class="btn">{{ t('filter') }}</button>
+  </form>
+  <div class="table-wrap"><table>
+    <thead><tr>
+      <th>{{ t('date') }}</th><th>{{ t('entry_no') }}</th><th>{{ t('memo') }}</th>
+      <th>{{ t('subconto') }}</th>
+      <th class="num">{{ t('debit') }}</th><th class="num">{{ t('credit') }}</th>
+      <th class="num">{{ t('balance') }}</th>
+    </tr></thead>
+    <tbody>
+      {% for r in data.rows %}
+      <tr>
+        <td class="nowrap">{{ r.date }}</td>
+        <td>#{{ r.entry_no }}</td>
+        <td class="muted">{{ r.memo or r.description or '' }}</td>
+        <td class="muted">{{ r.counterparty_name or r.project_name or r.staff_name or '' }}</td>
+        <td class="num">{{ fmt(r.debit) if r.debit else '' }}</td>
+        <td class="num">{{ fmt(r.credit) if r.credit else '' }}</td>
+        <td class="num"><b>{{ fmt(r.running_balance) }}</b></td>
+      </tr>
+      {% else %}{{ m.empty_row(7, t) }}{% endfor %}
+    </tbody>
+  </table></div>
+</div>
+{% endblock %}

@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block heading %}{{ t('nav_equipment') }}{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-head"><h2>{{ t('nav_equipment') }}</h2>
+    <button class="btn btn-primary" onclick="openModal('eqModal')">+ {{ t('new') }}</button></div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>{{ t('name') }}</th><th>{{ t('type') }}</th><th>{{ t('staff') }}</th>
+      <th class="num">{{ t('count') }}</th><th class="num">{{ t('amount') }}</th>
+      <th class="num">{{ t('lifespan_months') }}</th><th class="num">{{ t('monthly_cost') }}</th>
+      <th>{{ t('purchase_date') }}</th><th>{{ t('status') }}</th><th style="width:1%"></th></tr></thead>
+    <tbody>
+      {% for e in equipment %}
+      <tr><td><b>{{ e.name }}</b></td>
+        <td><span class="badge badge-draft">{{ t('equipment_' ~ e.kind) }}</span></td>
+        <td class="muted">{{ e.staff_name or '—' }}</td>
+        <td class="num">{{ e.quantity }}</td>
+        <td class="num">{{ fmt(e.price) }}</td>
+        <td class="num muted">{{ e.lifespan_months }}</td>
+        <td class="num"><b>{{ fmt(e.monthly) }}</b></td>
+        <td class="nowrap muted">{{ e.purchase_date or '—' }}</td>
+        <td>{% if e.is_active %}<span class="badge badge-ok">{{ t('yes') }}</span>
+            {% else %}<span class="badge badge-draft">{{ t('no') }}</span>{% endif %}</td>
+        <td>{{ m.edit_btn('eqModal', e, t) }}</td></tr>
+      {% else %}{{ m.empty_row(10, t) }}{% endfor %}
+    </tbody>
+  </table></div>
+</div>
+
+<div class="split">
+  <div class="card">
+    <div class="card-head"><h2>{{ t('nav_licenses') }}</h2>
+      <button class="btn btn-sm btn-primary" onclick="openModal('licModal')">+ {{ t('new') }}</button></div>
+    <div class="card-body tight"><table>
+      <thead><tr><th>{{ t('name') }}</th><th>{{ t('staff') }}</th>
+        <th class="num">{{ t('annual_cost') }}</th><th class="num">{{ t('monthly_cost') }}</th>
+        <th style="width:1%"></th></tr></thead>
+      <tbody>
+        {% for l in licenses %}
+        <tr><td>{{ l.name }}</td><td class="muted">{{ l.staff_name or '—' }}</td>
+          <td class="num">{{ fmt(l.annual_cost) }}</td>
+          <td class="num"><b>{{ fmt(l.monthly) }}</b></td>
+          <td>{{ m.edit_btn('licModal', l, t) }}</td></tr>
+        {% else %}{{ m.empty_row(5, t) }}{% endfor %}
+      </tbody>
+    </table></div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h2>{{ t('nav_overhead') }}</h2>
+      <div class="btn-row">
+        <a class="btn btn-sm" href="/rates/overhead">{{ t('source_ledger') }}</a>
+        <button class="btn btn-sm btn-primary" onclick="openModal('ovModal')">+ {{ t('new') }}</button></div></div>
+    <div class="card-body tight"><table>
+      <thead><tr><th>{{ t('name') }}</th><th class="num">{{ t('monthly_cost') }}</th>
+        <th>{{ t('status') }}</th><th style="width:1%"></th></tr></thead>
+      <tbody>
+        {% for o in overhead %}
+        <tr><td>{{ o.name }}</td><td class="num">{{ fmt(o.monthly_amount) }}</td>
+          <td>{% if o.is_active %}<span class="badge badge-ok">{{ t('yes') }}</span>
+              {% else %}<span class="badge badge-draft">{{ t('no') }}</span>{% endif %}</td>
+          <td>{{ m.edit_btn('ovModal', o, t) }}</td></tr>
+        {% else %}{{ m.empty_row(4, t) }}{% endfor %}
+        <tr class="total-row"><td>{{ t('total') }}</td>
+          <td class="num">{{ fmt(overhead|selectattr('is_active')|sum(attribute='monthly_amount')) }}</td>
+          <td colspan="2"></td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</div>
+
+{% call m.modal('eqModal', t('nav_equipment'), '/staff/equipment/save', t) %}
+  <input type="hidden" name="table" value="equipment">
+  <div class="grid grid-2">
+    {{ m.text_field('name', t('name'), required=True) }}
+    <div class="field"><label>{{ t('type') }}</label>
+      <select name="kind" data-reset>
+        <option value="personal">{{ t('equipment_personal') }}</option>
+        <option value="general">{{ t('equipment_general') }}</option></select></div>
+    <div class="field"><label>{{ t('staff') }}</label>
+      <select name="staff_id" data-reset><option value="">—</option>
+        {% for s in staff %}<option value="{{ s.id }}">{{ s.name }}</option>{% endfor %}</select></div>
+    {{ m.text_field('quantity', t('count'), type='number', value='1') }}
+    {{ m.text_field('price', t('amount'), type='number', attrs='step="1000"') }}
+    {{ m.text_field('lifespan_months', t('lifespan_months'), type='number', value='36') }}
+    {{ m.text_field('purchase_date', t('purchase_date'), type='date') }}
+  </div>
+  <div class="checkbox"><input type="checkbox" name="is_active" id="eqAct" value="1" checked>
+    <label for="eqAct">{{ t('project_active') }}</label></div>
+{% endcall %}
+
+{% call m.modal('licModal', t('nav_licenses'), '/staff/equipment/save', t) %}
+  <input type="hidden" name="table" value="licenses">
+  <div class="grid grid-2">
+    {{ m.text_field('name', t('name'), required=True) }}
+    <div class="field"><label>{{ t('staff') }}</label>
+      <select name="staff_id" data-reset><option value="">—</option>
+        {% for s in staff %}<option value="{{ s.id }}">{{ s.name }}</option>{% endfor %}</select></div>
+    {{ m.text_field('annual_cost', t('annual_cost'), type='number', attrs='step="1000"') }}
+  </div>
+  <div class="checkbox"><input type="checkbox" name="is_active" id="licAct" value="1" checked>
+    <label for="licAct">{{ t('project_active') }}</label></div>
+{% endcall %}
+
+{% call m.modal('ovModal', t('nav_overhead'), '/staff/equipment/save', t) %}
+  <input type="hidden" name="table" value="overhead_budget">
+  {{ m.text_field('name', t('name'), required=True) }}
+  {{ m.text_field('monthly_amount', t('monthly_cost'), type='number', attrs='step="1000"') }}
+  <div class="checkbox"><input type="checkbox" name="is_active" id="ovAct" value="1" checked>
+    <label for="ovAct">{{ t('project_active') }}</label></div>
+{% endcall %}
+{% endblock %}

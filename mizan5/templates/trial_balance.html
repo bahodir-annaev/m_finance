@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block heading %}{{ t('nav_trial_balance') }}{% endblock %}
+
+{% block content %}
+<div class="alert {% if tb.is_balanced %}alert-success{% else %}alert-error{% endif %}">
+  <b>{{ t('trial_balance_balanced') if tb.is_balanced else t('trial_balance_unbalanced') }}</b>
+  — {{ t('debit') }} {{ fmt(tb.totals.close_d) }} / {{ t('credit') }} {{ fmt(tb.totals.close_c) }}
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>{{ t('nav_trial_balance') }}</h2>
+    <button class="btn btn-sm" onclick="window.print()">{{ t('print') }}</button></div>
+  <form method="get" class="filters" style="padding:12px 16px;border-bottom:1px solid var(--line)">
+    <div class="field"><label>{{ t('date_from') }}</label>
+      <input type="date" name="date_from" value="{{ date_from or '' }}"></div>
+    <div class="field"><label>{{ t('date_to') }}</label>
+      <input type="date" name="date_to" value="{{ date_to or '' }}"></div>
+    <div class="checkbox" style="margin-bottom:2px">
+      <input type="checkbox" name="include_zero" id="iz" value="1" {% if include_zero %}checked{% endif %}>
+      <label for="iz">{{ t('all') }}</label></div>
+    <button class="btn">{{ t('filter') }}</button>
+  </form>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th rowspan="2">{{ t('code') }}</th><th rowspan="2">{{ t('account_name') }}</th>
+          <th rowspan="2">{{ t('type') }}</th>
+          <th colspan="2" style="text-align:center">{{ t('opening_balance') }}</th>
+          <th colspan="2" style="text-align:center">{{ t('turnover') }}</th>
+          <th colspan="2" style="text-align:center">{{ t('closing_balance') }}</th>
+        </tr>
+        <tr>
+          <th class="num">{{ t('debit') }}</th><th class="num">{{ t('credit') }}</th>
+          <th class="num">{{ t('debit') }}</th><th class="num">{{ t('credit') }}</th>
+          <th class="num">{{ t('debit') }}</th><th class="num">{{ t('credit') }}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in tb.rows %}
+        <tr>
+          <td><a href="/accounts/{{ r.account_id }}/card">{{ r.code }}</a></td>
+          <td>{{ r['name_' ~ lang] or r.name_ru }}</td>
+          <td><span class="badge badge-draft">{{ t('kind_' ~ r.kind) }}</span></td>
+          <td class="num">{{ fmt(r.open_debit) if r.open_debit else '' }}</td>
+          <td class="num">{{ fmt(r.open_credit) if r.open_credit else '' }}</td>
+          <td class="num">{{ fmt(r.turn_debit) if r.turn_debit else '' }}</td>
+          <td class="num">{{ fmt(r.turn_credit) if r.turn_credit else '' }}</td>
+          <td class="num"><b>{{ fmt(r.close_debit) if r.close_debit else '' }}</b></td>
+          <td class="num"><b>{{ fmt(r.close_credit) if r.close_credit else '' }}</b></td>
+        </tr>
+        {% else %}{{ m.empty_row(9, t) }}{% endfor %}
+      </tbody>
+      {% if tb.rows %}
+      <tfoot><tr class="total-row">
+        <td colspan="3">{{ t('total') }}</td>
+        <td class="num">{{ fmt(tb.totals.open_d) }}</td><td class="num">{{ fmt(tb.totals.open_c) }}</td>
+        <td class="num">{{ fmt(tb.totals.turn_d) }}</td><td class="num">{{ fmt(tb.totals.turn_c) }}</td>
+        <td class="num">{{ fmt(tb.totals.close_d) }}</td><td class="num">{{ fmt(tb.totals.close_c) }}</td>
+      </tr></tfoot>
+      {% endif %}
+    </table>
+  </div>
+</div>
+{% endblock %}

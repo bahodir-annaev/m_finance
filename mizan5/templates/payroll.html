@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block heading %}{{ t('nav_payroll') }} — {{ period }}{% endblock %}
+
+{% block content %}
+<div class="tiles">
+  <div class="tile"><div class="label">{{ t('gross_salary') }}</div>
+    <div class="value">{{ fmt(totals.gross) }}</div>
+    <div class="sub">{{ totals.count }} {{ t('staff_plural') }}</div></div>
+  <div class="tile"><div class="label">{{ t('pit') }}</div>
+    <div class="value">{{ fmt(totals.pit) }}</div><div class="sub">6420.1</div></div>
+  <div class="tile"><div class="label">{{ t('social') }}</div>
+    <div class="value">{{ fmt(totals.social) }}</div><div class="sub">6520</div></div>
+  <div class="tile brand"><div class="label">{{ t('net_pay') }}</div>
+    <div class="value">{{ fmt(totals.net) }}</div><div class="sub">6710</div></div>
+  <div class="tile"><div class="label">{{ t('total_monthly_cost') }}</div>
+    <div class="value">{{ fmt(totals.employer_cost) }}</div></div>
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <h2>{{ t('payroll_period') }}</h2>
+    <form method="get" class="btn-row">
+      <input type="month" name="period" value="{{ period }}" style="width:auto">
+      <button class="btn btn-sm">{{ t('filter') }}</button></form>
+  </div>
+
+  {% if doc %}
+  <div class="card-body" style="padding-bottom:0">
+    <div class="alert {% if doc.status=='posted' %}alert-success{% else %}alert-info{% endif %}">
+      {{ doc.number }} — {{ m.status_badge(doc.status, t) }}
+      {% if doc.status == 'posted' %}
+        · <a href="/documents/{{ doc.id }}">{{ t('view') }}</a>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  <form method="post" action="/payroll/save">
+    <input type="hidden" name="period" value="{{ period }}">
+    <div class="table-wrap"><table>
+      <thead><tr><th>{{ t('staff') }}</th>
+        <th class="num" style="width:16%">{{ t('gross_salary') }}</th>
+        <th class="num" style="width:14%">{{ t('pit') }}</th>
+        <th class="num" style="width:14%">{{ t('social') }}</th>
+        <th class="num">{{ t('net_pay') }}</th></tr></thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td>{{ r.staff_name }}
+            <input type="hidden" name="row_staff_id" value="{{ r.staff_id }}"></td>
+          <td><input class="num" name="row_gross" type="number" step="1000" value="{{ r.gross }}"
+                     {% if doc and doc.status=='posted' %}readonly{% endif %}></td>
+          <td><input class="num" name="row_pit" type="number" step="1000" value="{{ r.pit }}"
+                     {% if doc and doc.status=='posted' %}readonly{% endif %}></td>
+          <td><input class="num" name="row_social" type="number" step="1000" value="{{ r.social }}"
+                     {% if doc and doc.status=='posted' %}readonly{% endif %}></td>
+          <td class="num">{{ fmt(r.net) }}</td>
+        </tr>
+        {% else %}{{ m.empty_row(5, t) }}{% endfor %}
+      </tbody>
+      <tfoot><tr class="total-row"><td>{{ t('total') }}</td>
+        <td class="num">{{ fmt(totals.gross) }}</td>
+        <td class="num">{{ fmt(totals.pit) }}</td>
+        <td class="num">{{ fmt(totals.social) }}</td>
+        <td class="num">{{ fmt(totals.net) }}</td></tr></tfoot>
+    </table></div>
+    {% if not doc or doc.status == 'draft' %}
+    <div class="card-body btn-row">
+      <button class="btn" name="save_only" value="1">{{ t('save') }}</button>
+      <button class="btn btn-primary" name="post_now" value="1">{{ t('payroll_accrue') }}</button>
+      <span class="hint">2010 / 9420 &rarr; 6710 + 6420.1 + 6520</span>
+    </div>
+    {% endif %}
+  </form>
+</div>
+
+{% if remittance %}
+<div class="card">
+  <div class="card-head"><h2>{{ t('cash_out_total') }}</h2></div>
+  <div class="card-body tight"><table>
+    <thead><tr><th>{{ t('description') }}</th><th class="num">{{ t('amount') }}</th></tr></thead>
+    <tbody>
+      {% for r in remittance %}
+      <tr><td>{{ r.description }}</td><td class="num">{{ fmt(r.amount) }}</td></tr>
+      {% endfor %}
+      <tr class="total-row"><td>{{ t('total') }}</td>
+        <td class="num">{{ fmt(remittance|sum(attribute='amount')) }}</td></tr>
+    </tbody>
+  </table></div>
+  <div class="card-body">
+    <form method="post" action="/payroll/remit" class="btn-row">
+      <input type="hidden" name="period" value="{{ period }}">
+      <input type="date" name="date" value="{{ today }}" style="width:auto">
+      <select name="payment_method" style="width:auto">
+        {% for p in payment_types %}<option value="{{ p.code }}">{{ p.label_uz }}</option>{% endfor %}
+      </select>
+      <button class="btn btn-primary">{{ t('doc_cash_out') }}</button>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+<div class="split">
+  <div class="card">
+    <div class="card-head"><h3>{{ t('payable') }}</h3></div>
+    <div class="card-body tight"><table><tbody>
+      <tr><td>6710 {{ t('net_pay') }}</td><td class="num">{{ fmt(liabilities.net_pay) }}</td></tr>
+      <tr><td>6420.1 {{ t('pit') }}</td><td class="num">{{ fmt(liabilities.pit) }}</td></tr>
+      <tr><td>6520 {{ t('social') }}</td><td class="num">{{ fmt(liabilities.social) }}</td></tr>
+    </tbody></table></div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h3>{{ t('period') }}</h3></div>
+    <div class="card-body tight"><table>
+      <thead><tr><th>{{ t('period') }}</th><th>{{ t('status') }}</th>
+        <th class="num">{{ t('gross_salary') }}</th><th class="num">{{ t('count') }}</th></tr></thead>
+      <tbody>
+        {% for h in history %}
+        <tr><td><a href="/payroll?period={{ h.period }}">{{ h.period }}</a></td>
+          <td>{{ m.status_badge(h.status, t) }}</td>
+          <td class="num">{{ fmt(h.total) }}</td>
+          <td class="num muted">{{ h.staff_count }}</td></tr>
+        {% else %}{{ m.empty_row(4, t) }}{% endfor %}
+      </tbody>
+    </table></div>
+  </div>
+</div>
+{% endblock %}

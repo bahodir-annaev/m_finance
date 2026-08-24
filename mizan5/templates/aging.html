@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block heading %}{{ t('nav_aging') }}{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-head">
+    <div class="btn-row">
+      <a class="btn btn-sm {% if kind=='ar' %}btn-primary{% endif %}"
+         href="/reports/aging?kind=ar&as_of={{ as_of }}">{{ t('receivable') }}</a>
+      <a class="btn btn-sm {% if kind=='ap' %}btn-primary{% endif %}"
+         href="/reports/aging?kind=ap&as_of={{ as_of }}">{{ t('payable') }}</a>
+    </div>
+    <form method="get" class="btn-row">
+      <input type="hidden" name="kind" value="{{ kind }}">
+      <input type="date" name="as_of" value="{{ as_of }}" style="width:auto">
+      <button class="btn btn-sm">{{ t('filter') }}</button></form>
+  </div>
+</div>
+
+<div class="tiles">
+  <div class="tile"><div class="label">{{ t('aging_0_30') }}</div>
+    <div class="value">{{ fmt(aging.buckets.b0_30) }}</div></div>
+  <div class="tile"><div class="label">{{ t('aging_31_60') }}</div>
+    <div class="value">{{ fmt(aging.buckets.b31_60) }}</div></div>
+  <div class="tile warn"><div class="label">{{ t('aging_61_90') }}</div>
+    <div class="value">{{ fmt(aging.buckets.b61_90) }}</div></div>
+  <div class="tile bad"><div class="label">{{ t('aging_90_plus') }}</div>
+    <div class="value">{{ fmt(aging.buckets.b90_plus) }}</div></div>
+  <div class="tile brand"><div class="label">{{ t('total') }}</div>
+    <div class="value">{{ fmt(aging.total) }}</div>
+    <div class="sub">{{ t('overdue') }}: {{ fmt(aging.overdue) }}</div></div>
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>{{ t('counterparty') }}</h2></div>
+  <div class="card-body tight"><table>
+    <thead><tr><th>{{ t('counterparty') }}</th><th class="num">{{ t('count') }}</th>
+      <th class="num">{{ t('total') }}</th><th class="num">{{ t('overdue') }}</th></tr></thead>
+    <tbody>
+      {% for c in by_counterparty %}
+      <tr><td>{{ c.name }}</td><td class="num muted">{{ c.count }}</td>
+        <td class="num">{{ fmt(c.total) }}</td>
+        <td class="num {% if c.overdue %}neg{% endif %}">{{ fmt(c.overdue) }}</td></tr>
+      {% else %}{{ m.empty_row(4, t) }}{% endfor %}
+    </tbody>
+  </table></div>
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>{{ t('documents') }}</h2></div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>{{ t('doc_number') }}</th><th>{{ t('date') }}</th><th>{{ t('due_date') }}</th>
+      <th>{{ t('counterparty') }}</th><th>{{ t('project') }}</th>
+      <th class="num">{{ t('total') }}</th><th class="num">{{ t('outstanding') }}</th>
+      <th class="num">{{ t('aging') }}</th></tr></thead>
+    <tbody>
+      {% for i in aging['items'] %}
+      <tr>
+        <td><a href="/documents/{{ i.id }}">{{ i.number }}</a></td>
+        <td class="nowrap muted">{{ i.date }}</td>
+        <td class="nowrap">{{ i.due_date or '—' }}</td>
+        <td>{{ i.counterparty_name or '—' }}</td>
+        <td class="muted">{{ i.project_name or '' }}</td>
+        <td class="num muted">{{ fmt(i.total) }}</td>
+        <td class="num"><b>{{ fmt(i.outstanding) }}</b></td>
+        <td class="num">{% if i.is_overdue %}<span class="badge badge-bad">{{ i.days }}</span>
+          {% else %}<span class="muted">{{ i.days }}</span>{% endif %}</td>
+      </tr>
+      {% else %}{{ m.empty_row(8, t) }}{% endfor %}
+    </tbody>
+  </table></div>
+</div>
+{% endblock %}

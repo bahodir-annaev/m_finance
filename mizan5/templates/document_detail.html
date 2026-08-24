@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block heading %}{{ doc.number }}{% endblock %}
+{% block topbar_extra %}{{ m.status_badge(doc.status, t) }}{% endblock %}
+
+{% block content %}
+<div class="split">
+  <div class="card">
+    <div class="card-head"><h2>{{ t('doc_' ~ doc.doc_type) }}</h2>
+      <div class="btn-row">
+        {% if doc.status == 'draft' %}
+        <form method="post" action="/documents/{{ doc.id }}/post">
+          <button class="btn btn-primary btn-sm">{{ t('post') }}</button></form>
+        {% elif doc.status == 'posted' %}
+        <form method="post" action="/documents/{{ doc.id }}/void"
+              onsubmit="return confirm('{{ t('void_action') }}?')">
+          <input type="hidden" name="next" value="/documents/{{ doc.id }}">
+          <button class="btn btn-sm">{{ t('void_action') }}</button></form>
+        {% endif %}
+        <a class="btn btn-sm" href="/documents/{{ doc.doc_type }}">{{ t('back') }}</a>
+      </div>
+    </div>
+    <div class="card-body tight"><table><tbody>
+      <tr><td class="muted">{{ t('date') }}</td><td>{{ doc.date }}</td></tr>
+      <tr><td class="muted">{{ t('counterparty') }}</td>
+        <td>{{ doc.counterparty_name or '—' }}
+          {% if doc.counterparty_inn %}<span class="faint">· {{ doc.counterparty_inn }}</span>{% endif %}</td></tr>
+      {% if doc.project_name %}<tr><td class="muted">{{ t('project') }}</td>
+        <td>{{ doc.project_name }}</td></tr>{% endif %}
+      {% if doc.external_number %}<tr><td class="muted">{{ t('external_number') }}</td>
+        <td>{{ doc.external_number }}</td></tr>{% endif %}
+      {% if doc.contract_ref %}<tr><td class="muted">{{ t('contract_ref') }}</td>
+        <td>{{ doc.contract_ref }}</td></tr>{% endif %}
+      {% if doc.due_date %}<tr><td class="muted">{{ t('due_date') }}</td>
+        <td>{{ doc.due_date }}</td></tr>{% endif %}
+      <tr><td class="muted">{{ t('net_amount') }}</td><td class="num">{{ fmt(doc.subtotal) }}</td></tr>
+      <tr><td class="muted">{{ t('vat') }}</td><td class="num">{{ fmt(doc.vat_amount) }}</td></tr>
+      <tr class="total-row"><td>{{ t('total') }}</td><td class="num">{{ fmt(doc.total) }}
+        {% if doc.currency != 'UZS' %}<div class="faint">{{ doc.currency }}
+          {{ fmt(doc.total_cur, 2) }} @ {{ fmt(doc.exchange_rate) }}</div>{% endif %}</td></tr>
+      {% if doc.description %}<tr><td class="muted">{{ t('description') }}</td>
+        <td>{{ doc.description }}</td></tr>{% endif %}
+      {% if doc.void_reason %}<tr><td class="muted">{{ t('void_reason') }}</td>
+        <td>{{ doc.void_reason }}</td></tr>{% endif %}
+    </tbody></table></div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h2>{{ t('line_items') }}</h2></div>
+    <div class="card-body tight"><div class="table-wrap"><table>
+      <thead><tr><th>{{ t('description') }}</th><th class="num">{{ t('quantity') }}</th>
+        <th class="num">{{ t('net_amount') }}</th><th class="num">{{ t('vat') }}</th></tr></thead>
+      <tbody>
+        {% for l in doc.lines %}
+        <tr><td>{{ l.description or '' }}
+          {% if l.account_code %}<span class="faint">· {{ l.account_code }}</span>{% endif %}
+          {% if l.staff_name %}<span class="faint">· {{ l.staff_name }}</span>{% endif %}</td>
+          <td class="num muted">{{ fmt(l.quantity, 2) if l.quantity else '' }}</td>
+          <td class="num">{{ fmt(l.amount or l.gross or l.debit) }}</td>
+          <td class="num muted">{{ fmt(l.vat_amount) if l.vat_amount else '' }}</td></tr>
+        {% else %}{{ m.empty_row(4, t) }}{% endfor %}
+      </tbody>
+    </table></div></div>
+  </div>
+</div>
+
+{% if doc.allocations %}
+<div class="card">
+  <div class="card-head"><h2>{{ t('allocation') }}</h2></div>
+  <div class="card-body tight"><table>
+    <thead><tr><th>{{ t('doc_number') }}</th><th>{{ t('date') }}</th>
+      <th class="num">{{ t('total') }}</th><th class="num">{{ t('allocation') }}</th></tr></thead>
+    <tbody>
+      {% for a in doc.allocations %}
+      <tr><td><a href="/documents/{{ a.invoice_doc_id }}">{{ a.invoice_number }}</a></td>
+        <td class="muted">{{ a.invoice_date }}</td>
+        <td class="num muted">{{ fmt(a.invoice_total) }}</td>
+        <td class="num"><b>{{ fmt(a.amount) }}</b></td></tr>
+      {% endfor %}
+      <tr class="total-row"><td colspan="3">{{ t('total') }}</td>
+        <td class="num">{{ fmt(doc.allocated_total) }}</td></tr>
+    </tbody>
+  </table></div>
+</div>
+{% endif %}
+
+{% if entry %}
+<div class="card">
+  <div class="card-head"><h2>{{ t('journal_entry') }} #{{ entry.entry_no }}</h2>
+    <a class="btn btn-sm" href="/journal?date_from={{ entry.date }}&date_to={{ entry.date }}">
+      {{ t('nav_journal') }}</a></div>
+  <div class="card-body tight"><div class="table-wrap"><table>
+    <thead><tr><th>{{ t('account') }}</th><th>{{ t('description') }}</th>
+      <th class="num">{{ t('debit') }}</th><th class="num">{{ t('credit') }}</th></tr></thead>
+    <tbody>
+      {% for l in entry.lines %}
+      <tr><td><a href="/accounts/{{ l.account_id }}/card">{{ l.account_code }}</a>
+          <span class="faint">{{ l.account_name }}</span></td>
+        <td class="muted">{{ l.description or '' }}</td>
+        <td class="num">{{ fmt(l.debit) if l.debit else '' }}</td>
+        <td class="num">{{ fmt(l.credit) if l.credit else '' }}</td></tr>
+      {% endfor %}
+      <tr class="total-row"><td colspan="2">{{ t('total') }}</td>
+        <td class="num">{{ fmt(entry.total) }}</td><td class="num">{{ fmt(entry.total) }}</td></tr>
+    </tbody>
+  </table></div></div>
+</div>
+{% endif %}
+{% endblock %}

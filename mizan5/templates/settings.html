@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block heading %}{{ t('nav_settings') }}{% endblock %}
+
+{% block content %}
+<div class="split">
+  <div class="card">
+    <div class="card-head"><h2>{{ t('settings') }}</h2></div>
+    <div class="card-body">
+      <form method="post" action="/settings/save">
+        <div class="grid grid-2">
+          {% for s in settings %}
+          <div class="field">
+            <label>{{ s.label or s.key }} {% if s.unit %}<span class="faint">({{ s.unit }})</span>{% endif %}</label>
+            <input name="setting_{{ s.key }}" type="number" step="any" value="{{ s.value }}">
+            <div class="hint">{{ s.key }}</div>
+          </div>
+          {% endfor %}
+        </div>
+        <button class="btn btn-primary">{{ t('save') }}</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h2>{{ t('exchange_rate') }}</h2>
+      <span class="muted">1 USD = {{ fmt(usd_rate) }}</span></div>
+    <div class="card-body">
+      <form method="post" action="/settings/rate" class="filters">
+        <div class="field"><label>{{ t('date') }}</label>
+          <input type="date" name="date" value="{{ today }}"></div>
+        <div class="field"><label>{{ t('rate') }}</label>
+          <input name="rate" type="number" step="0.01"></div>
+        <button class="btn btn-primary">{{ t('save') }}</button>
+      </form>
+    </div>
+    <div class="card-body tight" style="max-height:280px;overflow-y:auto"><table>
+      <thead><tr><th>{{ t('date') }}</th><th class="num">{{ t('rate') }}</th></tr></thead>
+      <tbody>
+        {% for r in rates %}
+        <tr><td>{{ r.date }}</td><td class="num">{{ fmt(r.rate, 2) }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table></div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>{{ t('nav_users') }}</h2>
+    <button class="btn btn-primary" onclick="openModal('userModal')">+ {{ t('new') }}</button></div>
+  <div class="card-body tight"><table>
+    <thead><tr><th>{{ t('username') }}</th><th>{{ t('role') }}</th>
+      <th>{{ t('status') }}</th><th style="width:1%"></th></tr></thead>
+    <tbody>
+      {% for u in users %}
+      <tr><td><b>{{ u.username }}</b></td>
+        <td><span class="badge badge-info">{{ t('role_' ~ u.role) }}</span></td>
+        <td>{% if u.is_active %}<span class="badge badge-ok">{{ t('yes') }}</span>
+            {% else %}<span class="badge badge-draft">{{ t('no') }}</span>{% endif %}</td>
+        <td>{{ m.edit_btn('userModal', u, t) }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table></div>
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>{{ t('type') }}</h2>
+    <button class="btn btn-primary" onclick="openModal('lookupModal')">+ {{ t('new') }}</button></div>
+  <div class="card-body tight"><div class="table-wrap"><table>
+    <thead><tr><th>{{ t('type') }}</th><th>{{ t('code') }}</th><th>UZ</th><th>EN</th><th>RU</th>
+      <th>{{ t('status') }}</th></tr></thead>
+    <tbody>
+      {% for table, items in lookups.items() %}
+        <tr class="group-row"><td colspan="6">{{ table }}</td></tr>
+        {% for i in items %}
+        <tr><td class="muted">{{ table }}</td><td>{{ i.code }}</td>
+          <td>{{ i.label_uz }}</td><td class="muted">{{ i.label_en or '' }}</td>
+          <td class="muted">{{ i.label_ru or '' }}</td>
+          <td>{% if i.is_active %}<span class="badge badge-ok">{{ t('yes') }}</span>
+              {% else %}<span class="badge badge-draft">{{ t('no') }}</span>{% endif %}</td></tr>
+        {% endfor %}
+      {% endfor %}
+    </tbody>
+  </table></div></div>
+</div>
+
+{% call m.modal('userModal', t('nav_users'), '/settings/user', t) %}
+  <div class="grid grid-2">
+    {{ m.text_field('username', t('username'), required=True) }}
+    {{ m.text_field('password', t('password'), type='password') }}
+    <div class="field"><label>{{ t('role') }}</label>
+      <select name="role" data-reset>
+        <option value="viewer">{{ t('role_viewer') }}</option>
+        <option value="manager">{{ t('role_manager') }}</option>
+        <option value="admin">{{ t('role_admin') }}</option></select></div>
+  </div>
+  <div class="checkbox"><input type="checkbox" name="is_active" id="uAct" value="1" checked>
+    <label for="uAct">{{ t('project_active') }}</label></div>
+{% endcall %}
+
+{% call m.modal('lookupModal', t('type'), '/settings/lookup', t) %}
+  <div class="grid grid-2">
+    <div class="field"><label>{{ t('type') }}</label>
+      <select name="table" data-reset>
+        {% for table in lookups %}<option value="{{ table }}">{{ table }}</option>{% endfor %}
+      </select></div>
+    {{ m.text_field('code', t('code'), required=True) }}
+    {{ m.text_field('label_uz', 'UZ', required=True) }}
+    {{ m.text_field('label_en', 'EN') }}
+    {{ m.text_field('label_ru', 'RU') }}
+    {{ m.text_field('sort_order', t('code'), type='number', value='100') }}
+  </div>
+  <div class="checkbox"><input type="checkbox" name="is_active" id="lkAct" value="1" checked>
+    <label for="lkAct">{{ t('project_active') }}</label></div>
+{% endcall %}
+{% endblock %}

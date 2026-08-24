@@ -1,0 +1,329 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block heading %}{{ title }}{% endblock %}
+{% set is_invoice = doc_type in ('sales_invoice','purchase_invoice') %}
+{% set is_cash = doc_type in ('cash_in','cash_out') %}
+{% set is_journal = doc_type in ('manual','opening') %}
+
+{% block content %}
+<div class="card">
+  <div class="card-head">
+    <h2>{{ title }}</h2>
+    <div class="btn-row">
+      <button class="btn btn-primary" onclick="openModal('docModal')">+ {{ t('new') }}</button>
+    </div>
+  </div>
+
+  <form method="get" class="filters" style="padding:12px 16px;border-bottom:1px solid var(--line)">
+    <div class="field"><label>{{ t('date_from') }}</label>
+      <input type="date" name="date_from" value="{{ filters.date_from or '' }}"></div>
+    <div class="field"><label>{{ t('date_to') }}</label>
+      <input type="date" name="date_to" value="{{ filters.date_to or '' }}"></div>
+    <div class="field"><label>{{ t('status') }}</label>
+      <select name="status">
+        <option value="">{{ t('all') }}</option>
+        {% for s in ('draft','posted','void') %}
+        <option value="{{ s }}" {% if filters.status==s %}selected{% endif %}>{{ t(s) }}</option>
+        {% endfor %}
+      </select></div>
+    <div class="field" style="min-width:180px"><label>{{ t('search') }}</label>
+      <input type="search" name="q" value="{{ filters.search or '' }}"></div>
+    <button class="btn">{{ t('filter') }}</button>
+    <a class="btn" href="/documents/{{ doc_type }}">{{ t('reset') }}</a>
+  </form>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th>{{ t('date') }}</th>
+        <th>{{ t('doc_number') }}</th>
+        {% if is_invoice %}<th>{{ t('external_number') }}</th>{% endif %}
+        <th>{{ t('counterparty') }}</th>
+        <th>{{ t('description') }}</th>
+        {% if is_invoice %}<th>{{ t('project') }}</th><th class="num">{{ t('net_amount') }}</th>
+        <th class="num">{{ t('vat') }}</th>{% endif %}
+        <th class="num">{{ t('total') }}</th>
+        {% if is_invoice %}<th class="num">{{ t('outstanding') }}</th>{% endif %}
+        {% if is_cash %}<th class="num">{{ t('unallocated') }}</th>{% endif %}
+        <th>{{ t('status') }}</th>
+        <th style="width:1%">{{ t('actions') }}</th>
+      </tr></thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td class="nowrap">{{ r.date }}</td>
+          <td><a href="/documents/{{ r.id }}">{{ r.number }}</a></td>
+          {% if is_invoice %}<td class="muted">{{ r.external_number or '—' }}</td>{% endif %}
+          <td>{{ r.counterparty_name or '—' }}</td>
+          <td class="muted">{{ r.description or '' }}</td>
+          {% if is_invoice %}
+          <td class="muted">{{ r.project_name or '—' }}</td>
+          <td class="num">{{ fmt(r.subtotal) }}</td>
+          <td class="num muted">{{ fmt(r.vat_amount) }}</td>
+          {% endif %}
+          <td class="num"><b>{{ fmt(r.total) }}</b>
+            {% if r.currency != 'UZS' %}<div class="faint" style="font-size:.72rem">
+              {{ r.currency }} {{ fmt(r.total_cur, 2) }}</div>{% endif %}</td>
+          {% if is_invoice %}
+          <td class="num {% if r.outstanding > 0 %}neg{% endif %}">{{ fmt(r.outstanding) }}</td>
+          {% endif %}
+          {% if is_cash %}
+          <td class="num {% if r.unallocated > 0 %}muted{% endif %}">{{ fmt(r.unallocated) }}</td>
+          {% endif %}
+          <td>{{ m.status_badge(r.status, t) }}</td>
+          <td class="nowrap">
+            {% if r.status == 'draft' %}
+              <form method="post" action="/documents/{{ r.id }}/post" style="display:inline">
+                <button class="btn btn-sm btn-primary">{{ t('post') }}</button></form>
+              <form method="post" action="/documents/{{ r.id }}/delete" style="display:inline"
+                    onsubmit="return confirm('{{ t('confirm_delete') }}')">
+                <button class="btn btn-sm btn-icon">&times;</button></form>
+            {% elif r.status == 'posted' %}
+              <form method="post" action="/documents/{{ r.id }}/void" style="display:inline"
+                    onsubmit="return confirm('{{ t('void_action') }}?')">
+                <button class="btn btn-sm">{{ t('void_action') }}</button></form>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+          {{ m.empty_row(12, t) }}
+        {% endfor %}
+      </tbody>
+      {% if rows %}
+      <tfoot><tr class="total-row">
+        <td colspan="{% if is_invoice %}6{% else %}4{% endif %}">{{ t('total') }} — {{ rows|length }}</td>
+        {% if is_invoice %}<td class="num">{{ fmt(totals.total - rows|sum(attribute='vat_amount')) }}</td>
+        <td class="num">{{ fmt(rows|sum(attribute='vat_amount')) }}</td>{% endif %}
+        <td class="num">{{ fmt(totals.total) }}</td>
+        {% if is_invoice %}<td class="num">{{ fmt(totals.outstanding) }}</td>{% endif %}
+        {% if is_cash %}<td></td>{% endif %}
+        <td colspan="2"></td>
+      </tr></tfoot>
+      {% endif %}
+    </table>
+  </div>
+</div>
+
+{# ── Entry modal ────────────────────────────────────────────────────────── #}
+{% call m.modal('docModal', modal_title, '/documents/' ~ doc_type ~ '/save', t,
+                size='980px', linegrid=True) %}
+
+  <div class="grid grid-3">
+    <div class="field"><label>{{ t('date') }} *</label>
+      <input type="date" name="date" value="{{ today }}" data-default="{{ today }}"
+             data-reset required></div>
+
+    {% if doc_type != 'opening' and doc_type != 'manual' %}
+    <div class="field"><label>
+        {% if doc_type=='sales_invoice' %}{{ t('customer') }}
+        {% elif doc_type=='purchase_invoice' %}{{ t('vendor') }}
+        {% elif doc_type=='cash_in' %}{{ t('payer') }}
+        {% else %}{{ t('recipient') }}{% endif %}
+        {% if is_invoice %} *{% endif %}</label>
+      <select name="counterparty_id" data-reset {% if is_invoice %}required{% endif %}>
+        <option value="">—</option>
+        {% for c in counterparties %}
+        <option value="{{ c.id }}">{{ c.name }}{% if c.inn %} · {{ c.inn }}{% endif %}</option>
+        {% endfor %}
+      </select></div>
+    {% endif %}
+
+    {% if is_invoice %}
+    <div class="field"><label>{{ t('external_number') }}</label>
+      <input name="external_number" data-reset></div>
+    <div class="field"><label>{{ t('project') }}</label>
+      <select name="project_id" data-reset>
+        <option value="">—</option>
+        {% for p in projects %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
+      </select></div>
+    <div class="field"><label>{{ t('contract_ref') }}</label>
+      <input name="contract_ref" data-reset></div>
+    <div class="field"><label>{{ t('due_date') }}</label>
+      <input type="date" name="due_date" data-reset></div>
+    {% endif %}
+
+    {% if is_cash %}
+    <div class="field"><label>{{ t('payment_method') }}</label>
+      <select name="payment_method" data-reset>
+        {% for p in payment_types %}<option value="{{ p.code }}">{{ p.label_uz }}</option>{% endfor %}
+      </select></div>
+    <div class="field"><label>{{ t('amount') }} *</label>
+      <input name="total" type="number" step="0.01" data-reset required></div>
+    <div class="field"><label>{{ t('cash_purpose') }}</label>
+      <input name="cash_purpose" data-reset></div>
+    {% endif %}
+
+    <div class="field"><label>{{ t('currency') }}</label>
+      <select name="currency" data-reset>
+        <option value="UZS">UZS</option><option value="USD">USD</option>
+      </select></div>
+  </div>
+
+  <div class="field"><label>{{ t('description') }}</label>
+    <input name="description" data-reset></div>
+
+  {# ── Invoice line items ── #}
+  {% if is_invoice %}
+  <div class="section-title">{{ t('line_items') }}</div>
+  <div id="lineGrid" class="linegrid-wrap">
+    <table class="linegrid">
+      <thead><tr>
+        <th style="width:32%">{{ t('description') }}</th>
+        <th style="width:8%">{{ t('quantity') }}</th>
+        <th style="width:14%">{{ t('unit_price') }}</th>
+        <th style="width:16%">{{ t('net_amount') }}</th>
+        <th style="width:8%">{{ t('vat_rate') }}</th>
+        <th style="width:14%">{{ t('vat_amount') }}</th>
+        <th style="width:1%"></th>
+      </tr></thead>
+      <tbody></tbody>
+      <tfoot>
+        <tr><td colspan="3">{{ t('subtotal') }}</td>
+          <td class="num sum-net">0</td><td></td><td class="num sum-vat">0</td><td></td></tr>
+        <tr><td colspan="5"><b>{{ t('total') }}</b></td>
+          <td class="num"><b class="sum-total">0</b></td><td></td></tr>
+      </tfoot>
+    </table>
+    <template>
+      <tr>
+        <td><input name="line_description" data-f="description"></td>
+        <td><input name="line_quantity" data-f="quantity" type="number" step="0.01" value="1"></td>
+        <td><input name="line_unit_price" data-f="unit_price" type="number" step="0.01"></td>
+        <td><input name="line_amount" data-f="amount" type="number" step="0.01"></td>
+        <td><input name="line_vat_rate" data-f="vat_rate" type="number" step="0.1"
+                   value="{{ vat_rate }}"></td>
+        <td><input name="line_vat_amount" data-f="vat_amount" type="number" step="0.01" readonly></td>
+        <td><input type="hidden" name="line_account_id" data-f="account_id">
+            <input type="hidden" name="line_project_id" data-f="project_id">
+            <input type="hidden" name="line_phase_id" data-f="phase_id">
+            <button type="button" class="del" onclick="removeLine(this)">&times;</button></td>
+      </tr>
+    </template>
+  </div>
+  <div class="grid-actions">
+    <button type="button" class="btn btn-sm" onclick="addLine('lineGrid')">+ {{ t('add_line') }}</button>
+    <span class="hint">{{ t('vat_amount') }} — {{ t('vat_rate') }} %</span>
+  </div>
+  {% endif %}
+
+  {# ── Cash: allocation grid + purpose lines ── #}
+  {% if is_cash %}
+  <div class="section-title">{{ t('allocate_to_invoices') }}</div>
+  <div class="table-wrap" style="max-height:190px;overflow-y:auto;border:1px solid var(--line);
+       border-radius:6px">
+    <table class="linegrid">
+      <thead><tr>
+        <th>{{ t('doc_number') }}</th><th>{{ t('counterparty') }}</th><th>{{ t('date') }}</th>
+        <th class="num">{{ t('outstanding') }}</th><th style="width:18%">{{ t('allocation') }}</th>
+      </tr></thead>
+      <tbody>
+        {% for inv in open_invoices %}
+        <tr>
+          <td>{{ inv.number }}<input type="hidden" name="alloc_invoice_doc_id" value="{{ inv.id }}"></td>
+          <td class="muted">{{ inv.counterparty_name or '—' }}</td>
+          <td class="nowrap muted">{{ inv.date }}</td>
+          <td class="num">{{ fmt(inv.outstanding) }}</td>
+          <td><input name="alloc_amount" data-alloc type="number" step="0.01"
+                     max="{{ inv.outstanding }}" placeholder="0"></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="empty">{{ t('no_records') }}</td></tr>
+        {% endfor %}
+      </tbody>
+      <tfoot><tr>
+        <td colspan="3">{{ t('allocation') }} / {{ t('unallocated') }}</td>
+        <td class="num sum-alloc">0</td><td class="num sum-unalloc">0</td>
+      </tr></tfoot>
+    </table>
+  </div>
+  <p class="hint">{{ t('advance') }}: {{ t('unallocated') }} → 6310 / 4310</p>
+
+  <div class="section-title">{{ t('line_items') }}</div>
+  <div id="lineGrid" class="linegrid-wrap">
+    <table class="linegrid">
+      <thead><tr>
+        <th style="width:34%">{{ t('account') }}</th>
+        <th style="width:38%">{{ t('description') }}</th>
+        <th style="width:22%">{{ t('amount') }}</th><th style="width:1%"></th>
+      </tr></thead>
+      <tbody></tbody>
+    </table>
+    <template>
+      <tr>
+        <td><select name="line_account_id" data-f="account_id">
+          <option value="">—</option>
+          {% for a in accounts %}<option value="{{ a.id }}">{{ a.code }} — {{ a['name_' ~ lang] or a.name_ru }}</option>{% endfor %}
+        </select></td>
+        <td><input name="line_description" data-f="description"></td>
+        <td><input name="line_amount" data-f="amount" type="number" step="0.01"></td>
+        <td><input type="hidden" name="line_project_id" data-f="project_id">
+            <button type="button" class="del" onclick="removeLine(this)">&times;</button></td>
+      </tr>
+    </template>
+  </div>
+  <div class="grid-actions">
+    <button type="button" class="btn btn-sm" onclick="addLine('lineGrid')">+ {{ t('add_line') }}</button>
+    <span class="hint">{{ t('cash_purpose') }}: {{ t('doc_loan') }} / {{ t('pit') }} / {{ t('expense') }}</span>
+  </div>
+  {% endif %}
+
+  {# ── Manual / opening: debit-credit grid ── #}
+  {% if is_journal %}
+  <div class="section-title">{{ t('posting') }}</div>
+  <div id="lineGrid" class="linegrid-wrap">
+    <table class="linegrid">
+      <thead><tr>
+        <th style="width:32%">{{ t('account') }}</th>
+        <th style="width:26%">{{ t('description') }}</th>
+        <th style="width:18%">{{ t('debit') }}</th>
+        <th style="width:18%">{{ t('credit') }}</th><th style="width:1%"></th>
+      </tr></thead>
+      <tbody></tbody>
+      <tfoot><tr>
+        <td colspan="2"><b>{{ t('total') }}</b></td>
+        <td class="num"><b class="sum-debit">0</b></td>
+        <td class="num"><b class="sum-credit">0</b></td><td></td>
+      </tr></tfoot>
+    </table>
+    <template>
+      <tr>
+        <td><select name="line_account_id" data-f="account_id">
+          <option value="">—</option>
+          {% for a in accounts %}<option value="{{ a.id }}">{{ a.code }} — {{ a['name_' ~ lang] or a.name_ru }}</option>{% endfor %}
+        </select></td>
+        <td><input name="line_description" data-f="description"></td>
+        <td><input name="line_debit" data-f="debit" type="number" step="0.01"></td>
+        <td><input name="line_credit" data-f="credit" type="number" step="0.01"></td>
+        <td><input type="hidden" name="line_counterparty_id" data-f="counterparty_id">
+            <input type="hidden" name="line_project_id" data-f="project_id">
+            <button type="button" class="del" onclick="removeLine(this)">&times;</button></td>
+      </tr>
+    </template>
+  </div>
+  <div class="grid-actions">
+    <button type="button" class="btn btn-sm" onclick="addLine('lineGrid')">+ {{ t('add_line') }}</button>
+    {% if doc_type == 'manual' %}
+    <span class="balance-note bad" data-ok="{{ t('trial_balance_balanced') }}"
+          data-bad="{{ t('ledger_unbalanced') }}">—</span>
+    {% else %}
+    <span class="hint">0000 — {{ t('doc_opening') }}</span>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <div class="field" style="margin-top:14px"><label>{{ t('notes') }}</label>
+    <input name="notes" data-reset></div>
+  <div class="checkbox">
+    <input type="checkbox" name="post_now" id="postNow" value="1" checked>
+    <label for="postNow">{{ t('post') }}</label>
+  </div>
+{% endcall %}
+
+<script>
+/* Start every new document with one blank line so the grid is never empty. */
+document.addEventListener('DOMContentLoaded', () => {
+  const grid = document.getElementById('lineGrid');
+  if (grid && !grid.querySelector('tbody').children.length) addLine('lineGrid');
+});
+</script>
+{% endblock %}

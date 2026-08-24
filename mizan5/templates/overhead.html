@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block heading %}{{ t('nav_overhead') }}{% endblock %}
+
+{% block content %}
+<div class="tiles">
+  <div class="tile {% if active=='ledger' %}brand{% endif %}">
+    <div class="label">{{ t('source_ledger') }}</div>
+    <div class="value">{{ fmt(ledger.monthly) }}</div>
+    <div class="sub">{{ ledger.elapsed_months }} / {{ ledger.window_months }} {{ t('period') }}</div></div>
+  <div class="tile {% if active=='budget' %}brand{% endif %}">
+    <div class="label">{{ t('source_budget') }}</div>
+    <div class="value">{{ fmt(budget_total) }}</div></div>
+  <div class="tile"><div class="label">{{ t('variance') }}</div>
+    <div class="value">{{ fmt_signed(ledger.monthly - budget_total) }}</div></div>
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>{{ t('source_ledger') }} — {{ t('pool_indirect') }}</h2>
+    <a class="btn btn-sm" href="/rates">{{ t('back') }}</a></div>
+  <div class="card-body tight"><table>
+    <thead><tr><th>{{ t('account') }}</th><th class="num">{{ t('total') }}</th>
+      <th class="num">{{ t('monthly_cost') }}</th></tr></thead>
+    <tbody>
+      {% for b in ledger.breakdown %}
+      <tr><td>{{ b.code }} — {{ b['name_' ~ lang] or b.name_ru }}</td>
+        <td class="num">{{ fmt(b.net) }}</td>
+        <td class="num">{{ fmt(b.net / ledger.elapsed_months if ledger.elapsed_months else 0) }}</td></tr>
+      {% else %}{{ m.empty_row(3, t) }}{% endfor %}
+      <tr class="total-row"><td>{{ t('total') }}</td>
+        <td class="num">{{ fmt(ledger.total) }}</td>
+        <td class="num">{{ fmt(ledger.monthly) }}</td></tr>
+    </tbody>
+  </table></div>
+  <div class="card-body"><p class="hint">
+    {{ t('pool_indirect') }} — <a href="/accounts">{{ t('nav_accounts') }}</a> &rarr; {{ t('cost_pool') }}</p></div>
+</div>
+{% endblock %}

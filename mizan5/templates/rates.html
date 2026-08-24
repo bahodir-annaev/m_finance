@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block heading %}{{ t('rates_title') }}{% endblock %}
+{% block topbar_extra %}{{ t('period') }}: {{ ov.period or '—' }}{% endblock %}
+
+{% macro band(value, low, high) %}
+  {%- if value >= low and value <= high -%}<span class="badge badge-ok">{{ fmt(value,1) }}%</span>
+  {%- elif value < low -%}<span class="badge badge-info">{{ fmt(value,1) }}%</span>
+  {%- else -%}<span class="badge badge-warn">{{ fmt(value,1) }}%</span>{%- endif -%}
+{% endmacro %}
+
+{% block content %}
+<div class="tiles">
+  <div class="tile brand">
+    <div class="label">{{ t('overhead_rate') }}</div>
+    <div class="value">{{ fmt(ov.firm_overhead_rate_pct, 1) }}%</div>
+    <div class="sub">{{ t('pool_indirect') }} / {{ t('cost_rate') }} —
+      {{ benchmarks.overhead_rate[0] }}–{{ benchmarks.overhead_rate[1] }}%</div>
+  </div>
+  <div class="tile">
+    <div class="label">{{ t('utilization') }}</div>
+    <div class="value">{{ fmt(ov.firm_utilization_pct, 1) }}%</div>
+    <div class="sub">{{ benchmarks.utilization[0] }}–{{ benchmarks.utilization[1] }}%</div>
+  </div>
+  <div class="tile">
+    <div class="label">{{ t('available_hours') }}</div>
+    <div class="value">{{ fmt(ov.available_hours, 1) }}</div>
+    <div class="sub">{{ fmt(hours.annual_hours) }} / {{ t('period') }}</div>
+  </div>
+  <div class="tile">
+    <div class="label">{{ t('cost_rate') }} ⌀</div>
+    <div class="value">{{ fmt(ov.avg_cost_rate) }}</div>
+    <div class="sub">{{ t('billing_rate') }}: {{ fmt(ov.avg_billing_rate) }}</div>
+  </div>
+  <div class="tile">
+    <div class="label">{{ t('total_monthly_cost') }}</div>
+    <div class="value">{{ fmt(ov.total_monthly_cost) }}</div>
+    <div class="sub">{{ ov.priced_count }} / {{ ov.staff_count }} {{ t('staff_plural') }}</div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <h2>{{ t('rate_basis') }}</h2>
+    <form method="post" action="/rates/snapshot" style="display:inline">
+      <input type="hidden" name="period" value="{{ ov.period or '' }}">
+      <button class="btn btn-sm">{{ t('period') }} {{ t('save') }}</button>
+    </form>
+  </div>
+  <div class="card-body">
+    <form method="post" action="/rates/settings" class="grid grid-3">
+      <div class="field"><label>{{ t('allocation_base') }}</label>
+        <select name="allocation_base">
+          <option value="labor_cost" {% if ov.allocation_base=='labor_cost' %}selected{% endif %}>
+            {{ t('base_labor_cost') }}</option>
+          <option value="hours" {% if ov.allocation_base=='hours' %}selected{% endif %}>
+            {{ t('base_hours') }}</option>
+        </select>
+        <div class="hint">{{ t('base_labor_cost') }} — FAR / AASHTO</div></div>
+      <div class="field"><label>{{ t('overhead_source') }}</label>
+        <select name="overhead_source">
+          <option value="ledger" {% if ov.overhead_source=='ledger' %}selected{% endif %}>
+            {{ t('source_ledger') }}</option>
+          <option value="budget" {% if ov.overhead_source=='budget' %}selected{% endif %}>
+            {{ t('source_budget') }}</option>
+        </select>
+        <div class="hint"><a href="/rates/overhead">{{ t('nav_overhead') }}</a>
+          — {{ fmt(ov.overhead_monthly) }}</div></div>
+      <div class="field"><label>{{ t('markup') }}</label>
+        <input name="billing_multiplier" type="number" step="0.05" value="{{ ov.markup }}"></div>
+      <div class="field"><label>{{ t('risk_deadline') }} ({{ t('hours') }})</label>
+        <input name="holidays_per_year" type="number" value="{{ hours.yearly_work_days and (365-104-hours.yearly_work_days) }}"
+               title="{{ t('available_hours') }}"></div>
+      <div class="field" style="align-self:end">
+        <button class="btn btn-primary">{{ t('save') }}</button></div>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>{{ t('rates_title') }}</h2>
+    <button class="btn btn-sm" onclick="window.print()">{{ t('print') }}</button></div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th>{{ t('staff_code') }}</th><th>{{ t('name') }}</th><th>{{ t('role') }}</th>
+        <th class="num">{{ t('gross_salary') }}</th>
+        <th class="num">{{ t('tax') }}+{{ t('social') }}</th>
+        <th class="num">{{ t('admin_share') }}</th>
+        <th class="num">{{ t('overhead_share') }}</th>
+        <th class="num">{{ t('equipment_share') }}</th>
+        <th class="num">{{ t('total_monthly_cost') }}</th>
+        <th class="num">{{ t('billable_hours') }}</th>
+        <th class="num">{{ t('utilization') }}</th>
+        <th class="num">{{ t('overhead_rate') }}</th>
+        <th class="num"><b>{{ t('cost_rate') }}</b></th>
+        <th class="num">{{ t('billing_rate') }}</th>
+        <th class="num">{{ t('net_multiplier') }}</th>
+      </tr></thead>
+      <tbody>
+        {% for r in ov.rows %}
+        <tr>
+          <td class="muted nowrap">{{ r.staff_code or '' }}</td>
+          <td><b>{{ r.name }}</b></td>
+          <td class="muted">{{ r.role }}</td>
+          {% if r.has_salary %}
+          <td class="num">{{ fmt(r.gross) }}</td>
+          <td class="num muted">{{ fmt(r.tax + r.social) }}</td>
+          <td class="num muted">{{ fmt(r.admin_share) }}</td>
+          <td class="num muted">{{ fmt(r.overhead_share) }}</td>
+          <td class="num muted">{{ fmt(r.personal_eq + r.personal_lic + r.general_eq) }}</td>
+          <td class="num"><b>{{ fmt(r.total_monthly) }}</b></td>
+          <td class="num">{{ fmt(r.billable_hours, 1) }}</td>
+          <td class="num">{{ band(r.utilization_pct, benchmarks.utilization[0], benchmarks.utilization[1]) }}</td>
+          <td class="num muted">{{ fmt(r.overhead_rate_pct, 0) }}%</td>
+          <td class="num"><b style="color:var(--brand)">{{ fmt(r.cost_rate) }}</b></td>
+          <td class="num">{{ fmt(r.billing_rate) }}</td>
+          <td class="num {% if r.net_multiplier >= benchmarks.net_multiplier[0]
+                            and r.net_multiplier <= benchmarks.net_multiplier[1] %}pos{% endif %}">
+            {{ fmt(r.net_multiplier, 2) }}×</td>
+          {% else %}
+          <td colspan="12" class="muted">{{ t('no_salary_set') }} —
+            <a href="/staff">{{ t('nav_salaries') }}</a></td>
+          {% endif %}
+        </tr>
+        {% else %}{{ m.empty_row(15, t) }}{% endfor %}
+      </tbody>
+      {% if ov.priced_count %}
+      <tfoot><tr class="total-row">
+        <td colspan="3">{{ t('total') }}</td>
+        <td class="num">{{ fmt(ov.direct_labor_total / 1.24) }}</td>
+        <td class="num" colspan="4">{{ t('pool_indirect') }}: {{ fmt(ov.indirect_pool_total) }}</td>
+        <td class="num">{{ fmt(ov.total_monthly_cost) }}</td>
+        <td class="num">{{ fmt(ov.billable_hours_total, 1) }}</td>
+        <td class="num">{{ fmt(ov.firm_utilization_pct, 1) }}%</td>
+        <td class="num">{{ fmt(ov.firm_overhead_rate_pct, 0) }}%</td>
+        <td class="num">{{ fmt(ov.avg_cost_rate) }}</td>
+        <td class="num">{{ fmt(ov.avg_billing_rate) }}</td><td></td>
+      </tr></tfoot>
+      {% endif %}
+    </table>
+  </div>
+</div>
+
+<div class="split">
+  <div class="card">
+    <div class="card-head"><h3>{{ t('cost_pool') }}</h3></div>
+    <div class="card-body tight"><table>
+      <tbody>
+        <tr><td>{{ t('admin_share') }}</td><td class="num">{{ fmt(ov.admin_total) }}</td></tr>
+        <tr><td>{{ t('overhead_share') }}
+          <span class="badge badge-info">{{ t('source_ledger') if ov.overhead_source=='ledger'
+            else t('source_budget') }}</span></td>
+          <td class="num">{{ fmt(ov.overhead_monthly) }}</td></tr>
+        <tr><td>{{ t('equipment_share') }}</td><td class="num">{{ fmt(ov.general_equipment) }}</td></tr>
+        <tr class="total-row"><td>{{ t('pool_indirect') }}</td>
+          <td class="num">{{ fmt(ov.indirect_pool_total) }}</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h3>{{ t('nav_equipment') }}</h3>
+      <a class="btn btn-sm" href="/staff/equipment">{{ t('view') }}</a></div>
+    <div class="card-body tight"><table>
+      <tbody>
+        <tr><td>{{ t('monthly_cost') }} ({{ t('nav_equipment') }})</td>
+          <td class="num">{{ fmt(depreciation.register_monthly) }}</td></tr>
+        <tr><td class="muted">0150 {{ t('assets') }}</td>
+          <td class="num muted">{{ fmt(depreciation.ledger_asset) }}</td></tr>
+        <tr><td class="muted">0200 {{ t('kind_KA') }}</td>
+          <td class="num muted">{{ fmt(depreciation.ledger_accumulated) }}</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</div>
+{% endblock %}

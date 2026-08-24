@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block heading %}{{ t('nav_accounts') }}{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-head"><h2>{{ t('nav_accounts') }}</h2>
+    <button class="btn btn-primary" onclick="openModal('accModal')">+ {{ t('new') }}</button></div>
+  <div class="table-wrap"><table>
+    <thead><tr>
+      <th>{{ t('code') }}</th><th>{{ t('account_name') }}</th><th>{{ t('account_kind') }}</th>
+      <th>{{ t('subconto') }}</th><th>{{ t('cost_pool') }}</th>
+      <th class="num">{{ t('balance') }}</th><th>{{ t('status') }}</th><th style="width:1%"></th>
+    </tr></thead>
+    <tbody>
+      {% for a in accounts %}
+      <tr>
+        <td><a href="/accounts/{{ a.id }}/card"><b>{{ a.code }}</b></a></td>
+        <td>{{ a['name_' ~ lang] or a.name_ru }}
+          <div class="faint" style="font-size:.75rem">{{ a.name_ru }}</div></td>
+        <td><span class="badge badge-draft">{{ t('kind_' ~ a.kind) }}</span></td>
+        <td class="muted">{{ a.subconto or '—' }}</td>
+        <td>{% if a.cost_pool %}<span class="badge badge-info">{{ t('pool_' ~ a.cost_pool) }}</span>
+            {% else %}<span class="faint">—</span>{% endif %}</td>
+        <td class="num">{{ fmt(a.balance) if a.balance else '' }}</td>
+        <td>{% if a.is_active %}<span class="badge badge-ok">{{ t('yes') }}</span>
+            {% else %}<span class="badge badge-draft">{{ t('no') }}</span>{% endif %}</td>
+        <td>{{ m.edit_btn('accModal', a, t) }}</td>
+      </tr>
+      {% else %}{{ m.empty_row(8, t) }}{% endfor %}
+    </tbody>
+  </table></div>
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>{{ t('posting') }} &rarr; {{ t('account') }}</h2></div>
+  <div class="card-body">
+    <p class="hint">{{ t('ledger_no_account_map') }}</p>
+    <form method="post" action="/accounts/map">
+      <div class="grid grid-3">
+        {% for purpose, acc in account_map.items()|sort %}
+        <div class="field"><label>{{ purpose }}</label>
+          <select name="purpose_{{ purpose }}">
+            {% for a in accounts if a.is_active %}
+            <option value="{{ a.id }}" {% if a.id==acc.id %}selected{% endif %}>
+              {{ a.code }} — {{ a['name_' ~ lang] or a.name_ru }}</option>
+            {% endfor %}
+          </select></div>
+        {% endfor %}
+      </div>
+      <button class="btn btn-primary">{{ t('save') }}</button>
+    </form>
+  </div>
+</div>
+
+{% call m.modal('accModal', t('account'), '/accounts/save', t) %}
+  <div class="grid grid-2">
+    {{ m.text_field('code', t('account_code'), required=True) }}
+    {{ m.text_field('name_ru', t('account_name') ~ ' (RU)', required=True) }}
+    {{ m.text_field('name_uz', t('account_name') ~ ' (UZ)') }}
+    <div class="field"><label>{{ t('account_kind') }}</label>
+      <select name="kind" data-reset>
+        {% for k in ('A','KA','P','T') %}<option value="{{ k }}">{{ t('kind_' ~ k) }}</option>{% endfor %}
+      </select></div>
+    <div class="field"><label>{{ t('subconto') }}</label>
+      <select name="subconto" data-reset>
+        <option value="">—</option>
+        <option value="counterparty">counterparty</option>
+        <option value="project">project</option>
+        <option value="staff">staff</option>
+        <option value="bank_account">bank_account</option>
+      </select></div>
+    <div class="field"><label>{{ t('cost_pool') }}</label>
+      <select name="cost_pool" data-reset>
+        <option value="">—</option>
+        <option value="direct_labor">{{ t('pool_direct_labor') }}</option>
+        <option value="indirect">{{ t('pool_indirect') }}</option>
+        <option value="excluded">{{ t('pool_excluded') }}</option>
+      </select>
+      <div class="hint">{{ t('pool_indirect') }} &rarr; {{ t('overhead_rate') }}</div></div>
+  </div>
+  <div class="checkbox"><input type="checkbox" name="is_active" id="accAct" value="1" checked>
+    <label for="accAct">{{ t('project_active') }}</label></div>
+{% endcall %}
+{% endblock %}

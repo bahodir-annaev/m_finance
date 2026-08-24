@@ -46,6 +46,7 @@ uploads/
 
 # Auto-generated Flask session secret
 .mizan_secret_key
+.mizan5_secret_key
 
 # Distribution / packaging
 *.whl

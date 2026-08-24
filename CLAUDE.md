@@ -3,6 +3,10 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 > **Full knowledge-transfer reference:** see [`KT.md`](KT.md) — covers every table, model, controller, and business rule in detail.
+>
+> **v5 (double-entry rewrite):** built in [`mizan5/`](mizan5/) — see [`mizan5/CLAUDE.md`](mizan5/CLAUDE.md) for its architecture and [`NEW_APP_PLAN.md`](NEW_APP_PLAN.md) for the plan it was built from. v5 is a separate app with its own database (`mizan5.db`); the v4 app documented below still runs unchanged.
+>
+> **Chart of accounts reference:** see [`CHART_OF_ACCOUNTS.md`](CHART_OF_ACCOUNTS.md) — the full Uzbek national chart of accounts (НСБУ №21, 696 accounts) imported from Excel. This is the canonical source for account codes/names when seeding the double-entry ledger's `accounts` table. The `Вид` column drives posting semantics: **А** = asset (debit-normal), **КА** = contra-asset (credit-normal), **П** = liability/equity (credit-normal), **Т** = transactional (income/expense/result, closed to financial result).
 
 ## What this is
 
@@ -30,6 +34,8 @@ Tests are standalone scripts, not pytest. Each is self-contained:
 ```bash
 python test_loan_summary.py   # unit tests — no server needed
 python test_loans_i18n.py     # translation key completeness — no server needed
+python test_milestones.py     # milestones / periodic plan — temp DB, no server
+python test_pricing_plan.py   # Plan & Price (pricing ladder, freeze) — temp DB, no server
 python test_excel_per_page.py # integration — requires server on port 5099
 ```
 
@@ -53,7 +59,7 @@ The app uses a Flask Blueprint architecture with separated concerns:
 - `models/staff.py` — hourly rate calculation, KPI, proportional cost distribution, period snapshots
 - `models/projects.py` — project cost/profitability, FX gain/loss, earned revenue
 - `models/equipment.py` — equipment and license monthly depreciation
-- `models/pricing.py` — risk scoring, pricing estimate
+- `models/pricing.py` — risk scoring, the `price_from_cost()` ladder, project pricing from milestones, plan freeze
 - `models/transactions.py` — cash flow by month, payment summary
 - `models/loans.py` — loan listing, detail, summary
 - `models/dashboard.py` — dashboard aggregations, burn rate, capacity, AR aging
@@ -404,9 +410,11 @@ Remaining balance = `loans.total_amount − SUM(principal payments)` — only `p
 
 Risk coefficient is **never** applied to cost. It only raises the quoted price in the Pricing Engine.
 
-### Pricing Engine (`database.py → pricing_estimate`)
+### Plan & Price — the unified pricing feature (`models/pricing.py`)
 
-Pre-sales tool for quoting new projects. Takes planned hours per staff member plus four risk factors:
+**The milestone schedule *is* the plan.** A project is priced bottom-up from its milestones: each milestone carries its own employee hour rows (`milestone_staff`), which derive its `planned_hours`/`planned_cost`, plus its own `planned_outsourcing` and `planned_material`. The workspace is the **Plan & Price card on `/projects/<id>`**; `/pricing` is only a project picker plus a scratch quote for prospects with no project record.
+
+Four risk factors, now **persisted on the project** (`risk_deadline_months`, `risk_client_type`, `risk_complexity`, `risk_currency`) so a quote round-trips — `risk_score` is written too:
 
 | Factor | Low (1) | Medium (2) | High (3) | Weight |
 |---|---|---|---|---|
@@ -415,14 +423,27 @@ Pre-sales tool for quoting new projects. Takes planned hours per staff member pl
 | Complexity | Simple | Medium | High | 25% |
 | Currency | UZS | USD | Other | 20% |
 
+`price_from_cost()` is the **single price ladder**, applied identically to one milestone and to the project total:
+
 ```
 risk_coeff = 1 + (weighted_score − 1) × 0.15
-minimum_contract = mizan_cost × risk_coeff + outsourcing + materials
-target_contract  = minimum_contract / (1 − target_margin)   ← ensures margin is met
-premium_contract = target_contract × 1.2
+minimum = labor_cost × risk_coeff + outsourcing + materials
+target  = minimum / (1 − target_margin)   ← ensures margin is met
+premium = target × 1.2
 ```
 
-When a plan is "frozen" to a project, the `planned_hours`, `planned_cost`, `planned_revenue`, `planned_outsourcing`, `planned_material`, and `plan_frozen_date` columns on `projects` are written. These become the PLAN side of the Budget page and do not change as actual work proceeds.
+It is linear in its cost inputs, so **Σ(per-milestone target) == target(Σ costs)** exactly — that identity is why the intermediate (per-milestone, cumulative) figures and the project totals can never disagree, and it is pinned by `test_pricing_plan.py`.
+
+Each milestone's price (`planned_revenue`) is auto-suggested from the ladder but **overridable per row** — an edited price is flagged and `apply_suggested_prices()` leaves it alone unless forced. A price of 0 means "not priced yet", not an override. Cancelled milestones are excluded from both the price and the roll-up.
+
+**Two tiers of plan, deliberately:**
+
+- `project_phases.planned_*` — the **live working plan**, recomputed on every milestone edit.
+- `projects.planned_*` — the **frozen baseline** the Budget page compares FACT against. Only `freeze_project_plan()` writes it, stamping `plan_frozen_date`; it refuses on a project with no milestones so a baseline is never zeroed out. A signed `contract_amount` and an existing `estimated_total_hours` are never overwritten by a quote.
+
+When the live plan drifts from the frozen baseline, `get_plan_baseline()` reports `is_stale` and the card shows a "re-freeze" badge — visible drift instead of a silently moving goalpost.
+
+`generate_milestone_schedule(project_id, rows, totals=None)` creates the schedule: `totals=None` is skeleton mode (names, work types, dates only — the "Add standard schedule" button), while supplying `totals` splits them by percentage, spreading outsourcing/material by income share rather than dumping them on the last milestone.
 
 ### Budget page (plan vs actual)
 

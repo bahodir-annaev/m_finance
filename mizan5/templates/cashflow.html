@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block heading %}{{ t('nav_cashflow') }}{% endblock %}
+
+{% block content %}
+<div class="tiles">
+  {% for a in accounts %}
+  <div class="tile"><div class="label">{{ a.code }} {{ a['name_' ~ lang] or a.name_ru }}</div>
+    <div class="value">{{ fmt(a.balance) }}</div></div>
+  {% endfor %}
+  <div class="tile brand"><div class="label">{{ t('closing_balance') }}</div>
+    <div class="value">{{ fmt(cf.closing) }}</div></div>
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>{{ t('nav_cashflow') }}</h2></div>
+  <form method="get" class="filters" style="padding:12px 16px;border-bottom:1px solid var(--line)">
+    <div class="field"><label>{{ t('date_from') }}</label>
+      <input type="date" name="date_from" value="{{ date_from }}"></div>
+    <div class="field"><label>{{ t('date_to') }}</label>
+      <input type="date" name="date_to" value="{{ date_to }}"></div>
+    <button class="btn">{{ t('filter') }}</button>
+  </form>
+  <div class="table-wrap"><table>
+    <thead><tr><th>{{ t('period') }}</th>
+      <th class="num">{{ t('cash_in_total') }}</th><th class="num">{{ t('cash_out_total') }}</th>
+      <th class="num">{{ t('net_cash_flow') }}</th><th class="num">{{ t('running_balance') }}</th>
+    </tr></thead>
+    <tbody>
+      <tr><td class="muted">{{ t('opening_balance') }}</td><td colspan="3"></td>
+        <td class="num muted">{{ fmt(cf.opening) }}</td></tr>
+      {% for r in cf.rows %}
+      <tr><td><b>{{ r.period }}</b></td>
+        <td class="num pos">{{ fmt(r.inflow) }}</td>
+        <td class="num neg">{{ fmt(r.outflow) }}</td>
+        <td class="num {% if r.net >= 0 %}pos{% else %}neg{% endif %}">{{ fmt(r.net) }}</td>
+        <td class="num"><b>{{ fmt(r.running_balance) }}</b></td></tr>
+      {% else %}{{ m.empty_row(5, t) }}{% endfor %}
+    </tbody>
+    {% if cf.rows %}
+    <tfoot><tr class="total-row"><td>{{ t('total') }}</td>
+      <td class="num">{{ fmt(cf.total_in) }}</td><td class="num">{{ fmt(cf.total_out) }}</td>
+      <td class="num">{{ fmt(cf.total_in - cf.total_out) }}</td>
+      <td class="num">{{ fmt(cf.closing) }}</td></tr></tfoot>
+    {% endif %}
+  </table></div>
+</div>
+{% endblock %}

@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block heading %}{{ t('nav_budget') }}{% endblock %}
+
+{% block content %}
+<div class="tiles">
+  <div class="tile"><div class="label">{{ t('plan') }}</div>
+    <div class="value">{{ fmt(ov.totals.p_total) }}</div>
+    <div class="sub">{{ ov.planned_count }} {{ t('projects') }}</div></div>
+  <div class="tile"><div class="label">{{ t('fact') }}</div>
+    <div class="value">{{ fmt(ov.totals.f_total) }}</div></div>
+  <div class="tile {% if ov.total_d > 0 %}bad{% else %}ok{% endif %}">
+    <div class="label">{{ t('variance') }}</div>
+    <div class="value">{{ fmt_signed(ov.total_d) }}</div>
+    <div class="sub">{{ fmt(ov.total_d_pct, 1) }}%</div></div>
+  <div class="tile"><div class="label">{{ t('no_plan') }}</div>
+    <div class="value">{{ ov.unplanned_count }}</div>
+    <div class="sub">{{ t('no_plan') }}</div></div>
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>{{ t('plan') }} / {{ t('fact') }}</h2>
+    <button class="btn btn-sm" onclick="window.print()">{{ t('print') }}</button></div>
+  <div class="table-wrap"><table>
+    <thead><tr>
+      <th>{{ t('project') }}</th><th>{{ t('status') }}</th>
+      <th class="num">{{ t('planned_hours') }}</th><th class="num">{{ t('hours') }}</th>
+      <th class="num">{{ t('planned_cost') }}</th><th class="num">{{ t('cost_rate') }}</th>
+      <th class="num">{{ t('plan') }} &Sigma;</th><th class="num">{{ t('fact') }} &Sigma;</th>
+      <th class="num">{{ t('variance') }}</th>
+      <th class="num">{{ t('revenue') }}</th><th class="num">{{ t('profit') }}</th>
+    </tr></thead>
+    <tbody>
+      {% for r in ov.rows %}
+      <tr>
+        <td><a href="/projects/{{ r.id }}"><b>{{ r.name }}</b></a>
+          {% if r.plan_frozen_date %}<div class="faint" style="font-size:.72rem">
+            {{ t('plan_frozen') }} {{ r.plan_frozen_date }}</div>{% endif %}</td>
+        <td>{{ m.budget_badge(r.status, t) }}</td>
+        <td class="num muted">{{ fmt(r.p_hours, 1) if r.has_plan else '—' }}</td>
+        <td class="num">{{ fmt(r.f_hours, 1) }}</td>
+        <td class="num muted">{{ fmt(r.p_cost) if r.has_plan else '—' }}</td>
+        <td class="num">{{ fmt(r.f_cost) }}</td>
+        <td class="num muted">{{ fmt(r.p_total) if r.has_plan else '—' }}</td>
+        <td class="num"><b>{{ fmt(r.f_total) }}</b></td>
+        <td class="num">{% if r.has_plan %}
+          <span class="{% if r.d_total > 0 %}neg{% else %}pos{% endif %}">
+            {{ fmt_signed(r.d_total) }} ({{ fmt(r.d_pct, 1) }}%)</span>
+          {% else %}—{% endif %}</td>
+        <td class="num">{{ fmt(r.f_revenue) }}</td>
+        <td class="num {% if r.profit >= 0 %}pos{% else %}neg{% endif %}">{{ fmt(r.profit) }}</td>
+      </tr>
+      {% else %}{{ m.empty_row(11, t) }}{% endfor %}
+    </tbody>
+    {% if ov.rows %}
+    <tfoot><tr class="total-row">
+      <td colspan="2">{{ t('total') }}</td>
+      <td class="num">{{ fmt(ov.totals.p_hours, 1) }}</td>
+      <td class="num">{{ fmt(ov.totals.f_hours, 1) }}</td>
+      <td class="num">{{ fmt(ov.totals.p_cost) }}</td>
+      <td class="num">{{ fmt(ov.totals.f_cost) }}</td>
+      <td class="num">{{ fmt(ov.totals.p_total) }}</td>
+      <td class="num">{{ fmt(ov.totals.f_total) }}</td>
+      <td class="num {{ ov.total_css }}">{{ fmt_signed(ov.total_d) }}</td>
+      <td class="num">{{ fmt(ov.totals.f_revenue) }}</td>
+      <td class="num">{{ fmt(ov.totals.f_revenue - ov.totals.f_total) }}</td>
+    </tr></tfoot>
+    {% endif %}
+  </table></div>
+  <div class="card-body"><p class="hint">{{ t('no_plan') }} — {{ t('plan_stale') }}</p></div>
+</div>
+{% endblock %}

@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block heading %}{{ t('nav_dashboard') }}{% endblock %}
+{% block topbar_extra %}1 USD = {{ fmt(d.usd_rate) }} {{ t('uzs') }} · {{ d.as_of }}{% endblock %}
+
+{% block content %}
+{% if not d.books_balanced %}
+<div class="alert alert-error"><b>{{ t('trial_balance_unbalanced') }}</b>
+  — <a href="/trial-balance">{{ t('nav_trial_balance') }}</a></div>
+{% endif %}
+{% if d.draft_count %}
+<div class="alert alert-info">{{ d.draft_count }} {{ t('draft') }}</div>
+{% endif %}
+
+<div class="tiles">
+  <div class="tile brand">
+    <div class="label">{{ t('cash') }}</div>
+    <div class="value">{{ fmt(d.cash) }}</div>
+    <div class="sub">{% for a in d.cash_accounts %}{{ a.code }}: {{ fmt(a.balance) }}{% if not loop.last %} · {% endif %}{% endfor %}</div>
+  </div>
+  <div class="tile {% if d.receivable_overdue > 0 %}warn{% endif %}">
+    <div class="label">{{ t('receivable') }}</div>
+    <div class="value">{{ fmt(d.receivable) }}</div>
+    <div class="sub">{{ t('overdue') }}: {{ fmt(d.receivable_overdue) }}</div>
+  </div>
+  <div class="tile {% if d.payable > 0 %}bad{% endif %}">
+    <div class="label">{{ t('payable') }}</div>
+    <div class="value">{{ fmt(d.payable) }}</div>
+    <div class="sub">{{ t('overdue') }}: {{ fmt(d.payable_overdue) }}</div>
+  </div>
+  <div class="tile {% if d.pnl.net_profit >= 0 %}ok{% else %}bad{% endif %}">
+    <div class="label">{{ t('net_profit') }}</div>
+    <div class="value">{{ fmt(d.pnl.net_profit) }}</div>
+    <div class="sub">{{ t('revenue') }}: {{ fmt(d.pnl.total_income) }}</div>
+  </div>
+  <div class="tile">
+    <div class="label">{{ t('runway') }}</div>
+    <div class="value">{% if d.runway.months %}{{ fmt(d.runway.months, 1) }}{% else %}—{% endif %}</div>
+    <div class="sub">{{ t('burn_rate') }}: {{ fmt(d.runway.burn) }}</div>
+  </div>
+  <div class="tile {% if d.capacity.is_tight %}warn{% endif %}">
+    <div class="label">{{ t('capacity') }}</div>
+    <div class="value">{{ fmt(d.capacity.utilization_pct, 1) }}%</div>
+    <div class="sub">{{ d.capacity.staff_count }} × {{ fmt(d.capacity.total_hours) }} {{ t('hours') }}</div>
+  </div>
+</div>
+
+<div class="split">
+  <div class="card">
+    <div class="card-head"><h2>{{ t('nav_pnl') }}</h2>
+      <a class="btn btn-sm" href="/reports/pnl">{{ t('view') }}</a></div>
+    <div class="card-body tight"><div class="table-wrap"><table>
+      <tbody>
+        <tr><td>{{ t('income') }}</td><td class="num">{{ fmt(d.pnl.total_income) }}</td></tr>
+        <tr><td>{{ t('operating_expense') }}</td><td class="num">{{ fmt(d.pnl.total_expense) }}</td></tr>
+        <tr class="total-row"><td>{{ t('net_profit') }}</td>
+          <td class="num {% if d.pnl.net_profit >= 0 %}pos{% else %}neg{% endif %}">
+            {{ fmt(d.pnl.net_profit) }}</td></tr>
+        <tr><td class="muted">{{ t('target_margin') }}</td>
+          <td class="num muted">{{ fmt(d.pnl.margin_pct, 1) }}%</td></tr>
+      </tbody>
+    </table></div></div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h2>{{ t('projects') }}</h2>
+      <a class="btn btn-sm" href="/budget">{{ t('nav_budget') }}</a></div>
+    <div class="card-body tight"><div class="table-wrap"><table>
+      <tbody>
+        <tr><td>{{ t('projects') }}</td><td class="num">{{ d.portfolio.total }}</td></tr>
+        <tr><td>{{ t('plan_frozen') }}</td><td class="num">{{ d.portfolio.planned }}</td></tr>
+        <tr><td>{{ t('no_plan') }}</td><td class="num muted">{{ d.portfolio.unplanned }}</td></tr>
+        <tr><td>{{ t('over_budget') }}</td>
+          <td class="num {% if d.portfolio.over_budget %}neg{% endif %}">{{ d.portfolio.over_budget }}</td></tr>
+        <tr class="total-row"><td>{{ t('profit') }}</td>
+          <td class="num {% if d.portfolio.profit >= 0 %}pos{% else %}neg{% endif %}">
+            {{ fmt(d.portfolio.profit) }}</td></tr>
+      </tbody>
+    </table></div></div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>{{ t('documents') }}</h2></div>
+  <div class="card-body tight"><div class="table-wrap"><table>
+    <thead><tr>
+      <th>{{ t('date') }}</th><th>{{ t('doc_number') }}</th><th>{{ t('type') }}</th>
+      <th>{{ t('counterparty') }}</th><th class="num">{{ t('amount') }}</th><th>{{ t('status') }}</th>
+    </tr></thead>
+    <tbody>
+      {% for r in d.recent_documents %}
+      <tr>
+        <td class="nowrap">{{ r.date }}</td>
+        <td><a href="/documents/{{ r.id }}">{{ r.number }}</a></td>
+        <td class="muted">{{ t('doc_' ~ r.doc_type) }}</td>
+        <td>{{ r.counterparty_name or '—' }}</td>
+        <td class="num">{{ fmt(r.total) }}</td>
+        <td>{{ m.status_badge(r.status, t) }}</td>
+      </tr>
+      {% else %}{{ m.empty_row(6, t) }}{% endfor %}
+    </tbody>
+  </table></div></div>
+</div>
+{% endblock %}

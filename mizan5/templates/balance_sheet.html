@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block heading %}{{ t('nav_balance_sheet') }}{% endblock %}
+
+{% block content %}
+<div class="alert {% if bs.is_balanced %}alert-success{% else %}alert-error{% endif %}">
+  <b>{{ t('balance_sheet_ok') if bs.is_balanced else t('balance_sheet_error') }}</b>
+  — {{ fmt(bs.total_assets) }} / {{ fmt(bs.total_liabilities_equity) }}
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>{{ bs.as_of }}</h2>
+    <form method="get" class="btn-row">
+      <input type="date" name="as_of" value="{{ as_of }}" style="width:auto">
+      <button class="btn btn-sm">{{ t('filter') }}</button></form></div>
+  <div class="split" style="padding:16px;gap:0">
+    <div style="border-right:1px solid var(--line);padding-right:16px">
+      <h3>{{ t('assets') }}</h3>
+      <table>
+        <tbody>
+          {% for a in bs.assets %}
+          <tr><td>{{ a.code }} — {{ a['name_' ~ lang] or a.name_ru }}</td>
+            <td class="num">{{ fmt(a.amount) }}</td></tr>
+          {% endfor %}
+          {% for c in bs.contra %}
+          <tr><td class="muted">{{ c.code }} — {{ c['name_' ~ lang] or c.name_ru }}</td>
+            <td class="num neg">({{ fmt(c.amount) }})</td></tr>
+          {% endfor %}
+          <tr class="total-row"><td>{{ t('total') }}</td>
+            <td class="num">{{ fmt(bs.total_assets) }}</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div style="padding-left:16px">
+      <h3>{{ t('liabilities') }} + {{ t('equity') }}</h3>
+      <table>
+        <tbody>
+          {% for l in bs.liabilities %}
+          <tr><td>{{ l.code }} — {{ l['name_' ~ lang] or l.name_ru }}</td>
+            <td class="num">{{ fmt(l.amount) }}</td></tr>
+          {% endfor %}
+          <tr class="group-row"><td colspan="2">{{ t('equity') }}</td></tr>
+          {% for e in bs.equity %}
+          <tr><td>{{ e.code }} — {{ e['name_' ~ lang] or e.name_ru }}</td>
+            <td class="num">{{ fmt(e.amount) }}</td></tr>
+          {% endfor %}
+          <tr><td>{{ t('financial_result') }}</td>
+            <td class="num {% if bs.period_result >= 0 %}pos{% else %}neg{% endif %}">
+              {{ fmt(bs.period_result) }}</td></tr>
+          <tr class="total-row"><td>{{ t('total') }}</td>
+            <td class="num">{{ fmt(bs.total_liabilities_equity) }}</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

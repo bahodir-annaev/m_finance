@@ -1,19 +1,6 @@
 {% extends "base.html" %}
+{% from '_status_macros.html' import light_badge, headline_badge with context %}
 {% block content %}
-{% macro light_badge(st, label) %}
-  {%- if st == 'on' -%}<span class="badge" style="background:#F0FDF4;color:var(--done);border:1px solid #BBF7D0">{{ label }}</span>
-  {%- elif st == 'edge' -%}<span class="badge" style="background:#FFFBEB;color:#92400E;border:1px solid #FDE68A">{{ label }}</span>
-  {%- elif st == 'off' -%}<span class="badge" style="background:#FEF2F2;color:#DC2626;border:1px solid #FECACA">{{ label }}</span>
-  {%- else -%}<span class="badge" style="background:var(--bg);color:var(--text-light);border:1px solid var(--border)">{{ label }}</span>
-  {%- endif -%}
-{% endmacro %}
-{% macro headline_badge(st) %}
-  {%- if st == 'on' -%}{{ light_badge('on', t('plan_status_on')) }}
-  {%- elif st == 'edge' -%}{{ light_badge('edge', t('plan_status_edge')) }}
-  {%- elif st == 'off' -%}{{ light_badge('off', t('plan_status_off')) }}
-  {%- else -%}{{ light_badge('none', t('plan_status_none')) }}
-  {%- endif -%}
-{% endmacro %}
 
 <div class="page-header">
   <div>
@@ -51,6 +38,108 @@
   </div>
 </div>
 
+{# ── Plan & Price: the schedule below is the plan; price is computed from it ── #}
+{% if pricing %}
+<div class="card" style="border-left:4px solid var(--green)">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;flex-wrap:wrap;gap:8px">
+    <div>
+      <h3 style="margin:0">{{ t('pp_title') }}</h3>
+      <div style="font-size:12px;color:var(--text-light)">{{ t('pp_subtitle') }}</div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap" class="no-print">
+      {% if baseline.is_frozen %}
+        <span style="font-size:11px;color:var(--text-light)">{{ t('pp_frozen_at', baseline.plan_frozen_date) }}</span>
+        {% if baseline.is_stale %}{{ light_badge('edge', t('pp_stale')) }}{% endif %}
+      {% else %}
+        <span style="font-size:11px;color:var(--text-light)">{{ t('pp_frozen_none') }}</span>
+      {% endif %}
+      {% if can_edit %}
+        {% if milestones %}
+        <button class="btn btn-outline btn-sm" onclick="ppApplyPrices()">{{ t('pp_btn_apply_prices') }}</button>
+        <button class="btn btn-primary btn-sm" onclick="ppFreeze()">{{ t('pp_btn_freeze') }}</button>
+        {% else %}
+        <button class="btn btn-primary btn-sm" onclick="ppAddSchedule()">{{ t('pp_btn_schedule') }}</button>
+        {% endif %}
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="grid-2" style="margin-top:14px;align-items:start">
+    <div>
+      <h4 style="margin:0 0 10px;color:var(--primary);font-size:13px">{{ t('pp_risk_title') }}</h4>
+      <div class="grid-2">
+        <div class="field"><label>{{ t('pp_risk_deadline') }}</label>
+          <select id="pp_deadline" onchange="ppSaveRisk()"{% if not can_edit %} disabled{% endif %}>
+            <option value="3"{% if pricing.risk.deadline_bucket == 3 %} selected{% endif %}>{{ t('pp_risk_deadline_short') }}</option>
+            <option value="6"{% if pricing.risk.deadline_bucket == 6 %} selected{% endif %}>{{ t('pp_risk_deadline_mid') }}</option>
+            <option value="10"{% if pricing.risk.deadline_bucket == 10 %} selected{% endif %}>{{ t('pp_risk_deadline_long') }}</option>
+          </select></div>
+        <div class="field"><label>{{ t('pp_risk_client') }}</label>
+          <select id="pp_client_type" onchange="ppSaveRisk()"{% if not can_edit %} disabled{% endif %}>
+            <option value="regular"{% if pricing.risk.client_type == 'regular' %} selected{% endif %}>{{ t('pp_risk_client_regular') }}</option>
+            <option value="new"{% if pricing.risk.client_type == 'new' %} selected{% endif %}>{{ t('pp_risk_client_new') }}</option>
+            <option value="government"{% if pricing.risk.client_type == 'government' %} selected{% endif %}>{{ t('pp_risk_client_gov') }}</option>
+          </select></div>
+        <div class="field"><label>{{ t('pp_risk_complexity') }}</label>
+          <select id="pp_complexity" onchange="ppSaveRisk()"{% if not can_edit %} disabled{% endif %}>
+            <option value="simple"{% if pricing.risk.complexity == 'simple' %} selected{% endif %}>{{ t('pp_risk_simple') }}</option>
+            <option value="medium"{% if pricing.risk.complexity == 'medium' %} selected{% endif %}>{{ t('pp_risk_medium') }}</option>
+            <option value="high"{% if pricing.risk.complexity == 'high' %} selected{% endif %}>{{ t('pp_risk_high') }}</option>
+          </select></div>
+        <div class="field"><label>{{ t('pp_risk_currency') }}</label>
+          <select id="pp_currency" onchange="ppSaveRisk()"{% if not can_edit %} disabled{% endif %}>
+            <option value="UZS"{% if pricing.risk.currency == 'UZS' %} selected{% endif %}>UZS</option>
+            <option value="USD"{% if pricing.risk.currency == 'USD' %} selected{% endif %}>USD</option>
+            <option value="KGS"{% if pricing.risk.currency not in ('UZS', 'USD') %} selected{% endif %}>KGS/EUR</option>
+          </select></div>
+      </div>
+      <div style="font-size:12px;color:var(--text-light);margin-top:4px">
+        {{ t('pp_risk_coeff') }}: <b>{{ pricing.risk_coeff }}</b> ·
+        {{ t('pp_margin') }}: <b>{{ (pricing.target_margin * 100)|round|int }}%</b>
+      </div>
+    </div>
+    <div>
+      <div class="grid-3">
+        <div class="price-card">
+          <div class="price-label">{{ t('pp_price_minimum') }}</div>
+          <div class="price-value" style="color:var(--red)">{{ fmt(pricing.minimum_contract) }}</div>
+          <div class="price-usd">${{ fmt(pricing.minimum_usd, 0) }} USD</div>
+        </div>
+        <div class="price-card recommended">
+          <div class="price-label">{{ t('pp_price_target', (pricing.target_margin * 100)|round|int) }}</div>
+          <div class="price-value" style="color:var(--green)">{{ fmt(pricing.target_contract) }}</div>
+          <div class="price-usd">${{ fmt(pricing.target_usd, 0) }} USD</div>
+        </div>
+        <div class="price-card">
+          <div class="price-label">{{ t('pp_price_premium') }}</div>
+          <div class="price-value">{{ fmt(pricing.premium_contract) }}</div>
+          <div class="price-usd">${{ fmt(pricing.premium_usd, 0) }} USD</div>
+        </div>
+      </div>
+      <div style="margin-top:10px;font-size:12px;display:flex;gap:14px;flex-wrap:wrap">
+        <span>{{ t('pp_plan_revenue') }}: <b>{{ fmt(pricing.plan_revenue_total) }}</b></span>
+        <span>{{ t('pp_th_expense') }}: <b>{{ fmt(pricing.total_expense) }}</b></span>
+        <span>{{ t('pp_th_margin') }}: <b class="{{ 'profit' if pricing.plan_margin_pct >= 0 else 'loss' }}">{{ fmt(pricing.plan_margin_pct, 1) }}%</b></span>
+        <span style="color:var(--text-light)">
+          {%- if pricing.revenue_gap > 1 %}{{ t('pp_gap_over', fmt(pricing.revenue_gap)) }}
+          {%- elif pricing.revenue_gap < -1 %}{{ t('pp_gap_under', fmt(-pricing.revenue_gap)) }}
+          {%- else %}{{ t('pp_gap_match') }}{% endif -%}
+        </span>
+      </div>
+      {% if baseline.is_frozen %}
+      <div style="margin-top:6px;font-size:11px;color:var(--text-light)">
+        {{ t('pp_baseline') }}: {{ t('pp_th_expense') }} {{ fmt(baseline.expense) }} ·
+        {{ t('pp_plan_revenue') }} {{ fmt(baseline.planned_revenue) }}
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  {% if not milestones %}
+  <div class="empty-state" style="padding:20px;margin-top:12px">{{ t('pp_no_milestones') }}</div>
+  {% endif %}
+</div>
+{% endif %}
+
 {# ── Milestones ── #}
 <div class="card" style="overflow-x:auto">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
@@ -67,8 +156,14 @@
       <th>{{ t('ms_th_dates') }}</th>
       <th>{{ t('ms_th_status') }}</th>
       <th>{{ t('ms_th_completion') }}</th>
-      <th class="num">{{ t('ms_th_plan_income') }}</th>
-      <th class="num">{{ t('ms_th_plan_expense') }}</th>
+      <th class="num">{{ t('pp_th_labor') }}</th>
+      <th class="num">{{ t('pp_th_outsourcing') }}</th>
+      <th class="num">{{ t('pp_th_material') }}</th>
+      <th class="num">{{ t('pp_th_expense') }}</th>
+      <th class="num">{{ t('pp_th_suggested') }}</th>
+      <th class="num">{{ t('pp_th_price') }}</th>
+      <th class="num">{{ t('pp_th_cum_expense') }}</th>
+      <th class="num">{{ t('pp_th_cum_price') }}</th>
       <th class="num">{{ t('ms_th_fact_income') }}</th>
       <th class="num">{{ t('ms_th_fact_expense') }}</th>
       <th class="num">EV</th>
@@ -106,8 +201,16 @@
         <span style="font-size:10px;color:var(--text-light)">/ {{ fmt(m.expected_completion, 0) }}%</span>
         {% endif %}
       </td>
-      <td class="num">{{ fmt(m.planned_revenue) }}</td>
-      <td class="num">{{ fmt(m.plan_expense) }}</td>
+      {% set pr = price_by_id.get(m.id) %}
+      <td class="num">{{ fmt(m.planned_cost) }}</td>
+      <td class="num">{{ fmt(m.planned_outsourcing) }}</td>
+      <td class="num">{{ fmt(m.planned_material) }}</td>
+      <td class="num"><b>{{ fmt(m.plan_expense) }}</b></td>
+      <td class="num" style="color:var(--text-light)">{{ fmt(pr.suggested) if pr else '—' }}</td>
+      <td class="num">{{ fmt(m.planned_revenue) }}{% if pr and pr.is_overridden %}
+        <span title="{{ t('pp_overridden') }}" style="color:var(--blue)">&#9998;</span>{% endif %}</td>
+      <td class="num" style="color:var(--text-light)">{{ fmt(pr.cum_expense) if pr else '—' }}</td>
+      <td class="num" style="color:var(--text-light)">{{ fmt(pr.cum_price) if pr else '—' }}</td>
       <td class="num">{{ fmt(m.fact.income) }}</td>
       <td class="num {{ 'loss' if m.cost_d_pct > 5 and m.plan_expense > 0 else '' }}">{{ fmt(m.fact.expense) }}</td>
       <td class="num">{{ fmt(m.earned_value) }}</td>
@@ -117,6 +220,23 @@
     </tr>
     {% endfor %}
     </tbody>
+    {% if pricing %}
+    <tfoot><tr style="font-weight:700;background:#EDE8E0">
+      <td colspan="4">{{ t('pp_total') }}</td>
+      <td class="num">{{ fmt(pricing.total_hours, 0) }}h</td>
+      <td class="num">{{ fmt(pricing.total_labor) }}</td>
+      <td class="num">{{ fmt(pricing.total_outsourcing) }}</td>
+      <td class="num">{{ fmt(pricing.total_material) }}</td>
+      <td class="num">{{ fmt(pricing.total_expense) }}</td>
+      <td class="num">{{ fmt(pricing.target_contract) }}</td>
+      <td class="num">{{ fmt(pricing.plan_revenue_total) }}</td>
+      <td colspan="2"></td>
+      <td class="num">{{ fmt(rollup.totals.fact_income) }}</td>
+      <td class="num">{{ fmt(rollup.totals.fact_expense) }}</td>
+      <td class="num">{{ fmt(total_ev) }}</td>
+      <td></td>
+    </tr></tfoot>
+    {% endif %}
   </table>
 
   {# Timeline strip #}
@@ -298,6 +418,51 @@ function assignHours(period) {
       if (res.status === 'ok') { location.reload(); } else { alert(res.error || 'Error'); }
     })
     .catch(function () { alert('Error'); });
+}
+
+// ── Plan & Price ──
+var PP_PROJECT = '{{ proj.id }}';
+
+function ppPost(url, fd, onOk) {
+  fetch(url, { method: 'POST', body: fd || new FormData() })
+    .then(function (r) { return r.json(); })
+    .then(function (res) {
+      if (res.status === 'ok') { onOk ? onOk(res) : location.reload(); }
+      else { alert(res.error ? (PP_ERR[res.error] || res.error) : 'Error'); }
+    })
+    .catch(function () { alert('Error'); });
+}
+
+var PP_ERR = {
+  empty: {{ t('pp_err_empty')|tojson }},
+  exists: {{ t('pricing_ms_err_exists')|tojson }},
+  locked: {{ t('pricing_ms_err_locked')|tojson }}
+};
+
+function ppSaveRisk() {
+  var fd = new FormData();
+  fd.append('deadline_months', document.getElementById('pp_deadline').value);
+  fd.append('client_type', document.getElementById('pp_client_type').value);
+  fd.append('complexity', document.getElementById('pp_complexity').value);
+  fd.append('currency', document.getElementById('pp_currency').value);
+  // Reload so every row's suggested price and the tiles reflect the new risk.
+  ppPost('/api/projects/' + PP_PROJECT + '/risk', fd);
+}
+
+function ppFreeze() {
+  if (!confirm({{ t('pp_freeze_confirm')|tojson }})) return;
+  ppPost('/api/projects/' + PP_PROJECT + '/plan/freeze');
+}
+
+function ppApplyPrices() {
+  ppPost('/api/projects/' + PP_PROJECT + '/milestones/apply-prices', null, function (res) {
+    alert({{ t('pp_applied')|tojson }}.replace('{0}', res.changed));
+    location.reload();
+  });
+}
+
+function ppAddSchedule() {
+  ppPost('/api/projects/' + PP_PROJECT + '/milestones/schedule');
 }
 </script>
 {% endif %}

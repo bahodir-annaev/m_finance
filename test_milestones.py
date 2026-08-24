@@ -273,6 +273,58 @@ check('overview lists the project', any(r['id'] == pid for r in ov['rows']))
 oc = get_projects_on_course_summary()
 check('summary counts present', all(k in oc for k in ('on', 'edge', 'off', 'tracked', 'late_projects')))
 
+print('== Merged portfolio page: both lenses on every row ==')
+check('every row carries the whole-project lens',
+      all('whole' in r and 'to_date' in r for r in ov['rows']))
+check('portfolio totals present',
+      all(k in ov for k in ('whole_totals', 'whole_d_total', 'whole_d_pct', 'whole_d_css')))
+
+# The claim that lets /budget drop its calculate_project_cost() loop:
+# the roll-up's lifetime totals must equal calculate_project_cost() exactly.
+recon_ok = True
+for r in ov['rows']:
+    pc = calculate_project_cost(r['id'])
+    w = r['whole']
+    if not (abs(w['f_cost'] - pc['mizan_cost']) < 1e-6
+            and abs(w['f_direct'] - (pc['outsourcing'] + pc['material'])) < 1e-6
+            and abs(w['f_hrs'] - pc['total_hours']) < 1e-6
+            and abs(w['f_total'] - (pc['mizan_cost'] + pc['outsourcing'] + pc['material'])) < 1e-6):
+        recon_ok = False
+check('whole-project FACT reconciles with calculate_project_cost', recon_ok)
+
+# A project with milestones but zero logged hours was invisible on the old
+# /budget (it skipped total_hours == 0); the merged row set includes it.
+conn = get_db()
+conn.execute("INSERT INTO projects (name) VALUES ('MS NoHours')")
+nh = conn.execute("SELECT id FROM projects WHERE name='MS NoHours'").fetchone()['id']
+conn.commit()
+conn.close()
+add_milestone(nh, 'Faqat reja', start_date='2026-04-01', end_date='2026-06-30',
+              planned_revenue=10000000, planned_cost=4000000)
+ov2 = get_plan_overview()
+nh_row = next((r for r in ov2['rows'] if r['id'] == nh), None)
+check('project with milestones but no hours appears', nh_row is not None)
+check('...and reads as unplanned on the baseline lens',
+      nh_row is not None and not nh_row['whole']['has_plan']
+      and nh_row['whole']['f_total'] == 0)
+
+ms_row = next(r for r in ov2['rows'] if r['id'] == pid)
+conn = get_db()
+distinct_plan_staff = conn.execute(
+    "SELECT COUNT(DISTINCT ms.staff_id) FROM milestone_staff ms"
+    " JOIN project_phases pp ON ms.phase_id = pp.id WHERE pp.project_id=?", (pid,)).fetchone()[0]
+conn.close()
+check('planned headcount matches milestone_staff exactly',
+      ms_row['whole']['p_workers'] == distinct_plan_staff,
+      f"{ms_row['whole']['p_workers']} vs {distinct_plan_staff}")
+
+# Sharing the rate cache across projects must not change a single figure.
+_cached = get_project_monthly_actuals(pid, rate_cache={}, period_closed_cache={})
+_fresh = get_project_monthly_actuals(pid)
+check('shared rate cache changes no figure',
+      _cached.keys() == _fresh.keys()
+      and all(abs(_cached[p]['expense'] - _fresh[p]['expense']) < 1e-9 for p in _fresh))
+
 print('== NIZAM upsert preserves attribution ==')
 conn = get_db()
 conn.execute("UPDATE project_hours SET phase_id=? WHERE project_id=? AND period='2026-06'", (mid2, pid))
@@ -295,10 +347,15 @@ client = flask_app.test_client()
 r = client.post('/login', data={'username': 'admin', 'password': 'mizan2024'},
                 follow_redirects=True)
 check('login as seeded admin', r.status_code == 200)
-for path in ('/plan', f'/projects/{pid}', '/projects', '/pricing', '/external',
+for path in (f'/projects/{pid}', '/projects', '/pricing', '/external',
              '/internal', '/', '/reference/lookup-tables', '/budget'):
     r = client.get(path)
     check(f'GET {path} -> 200', r.status_code == 200, f'got {r.status_code}')
+r = client.get('/plan')
+check('GET /plan -> 301 to /budget (merged portfolio page)',
+      r.status_code == 301 and r.headers.get('Location', '').endswith('/budget'),
+      f'got {r.status_code} {r.headers.get("Location")}')
+check('GET /plan followed -> 200', client.get('/plan', follow_redirects=True).status_code == 200)
 r = client.get('/projects/999999')
 check('GET missing project -> 404', r.status_code == 404)
 r = client.post('/api/milestones/add',

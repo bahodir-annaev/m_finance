@@ -94,8 +94,14 @@ def _empty_bucket():
     return {'income': 0.0, 'labor': 0.0, 'direct': 0.0, 'expense': 0.0, 'hours': 0.0}
 
 
-def get_project_monthly_actuals(project_id):
-    """{period 'YYYY-MM' → {income, labor, direct, expense, hours}} for one project."""
+def get_project_monthly_actuals(project_id, rate_cache=None, period_closed_cache=None):
+    """{period 'YYYY-MM' → {income, labor, direct, expense, hours}} for one project.
+
+    rate_cache / period_closed_cache let a caller looping over many projects
+    (get_plan_overview) resolve each staff member's rate once instead of once
+    per project — calculate_hourly_rate runs several aggregate queries. Omit
+    them and the behaviour is exactly as before.
+    """
     conn = get_db()
     money = conn.execute(f'''
         SELECT strftime('%Y-%m', date) AS period,
@@ -120,7 +126,8 @@ def get_project_monthly_actuals(project_id):
         b['income'] += r['income'] or 0
         b['direct'] += r['direct'] or 0
 
-    rate_cache, closed_cache = {}, {}
+    rate_cache = {} if rate_cache is None else rate_cache
+    closed_cache = {} if period_closed_cache is None else period_closed_cache
     for r in labor_rows:
         cost, hours = _labor_cost([r], rate_cache, closed_cache)
         b = out.setdefault(r['period'], _empty_bucket())
@@ -546,11 +553,16 @@ def _light_from_ratio(ratio):
     return 'off'
 
 
-def get_project_monthly_rollup(project_id, milestones=None):
+def get_project_monthly_rollup(project_id, milestones=None, rate_cache=None,
+                               period_closed_cache=None):
     """Monthly PLAN (day-weighted from milestones) vs FAKT (date/period-based —
     independent of tagging), with cumulative to-date figures and the on-course
     verdict. 'To date' = months strictly before the current month; the current
-    month is displayed but never judged (income lands late in a month)."""
+    month is displayed but never judged (income lands late in a month).
+
+    'totals' carries the LIFETIME fact figures (every month, not just to-date),
+    split into labor/direct/hours — these reconcile with calculate_project_cost()
+    and are what the portfolio page uses for its whole-project lens."""
     if milestones is None:
         conn = get_db()
         milestones = [dict(r) for r in conn.execute(
@@ -584,7 +596,7 @@ def get_project_monthly_rollup(project_id, milestones=None):
         plan_total_income += m.get('planned_revenue') or 0
         plan_total_expense += _plan_expense_total(m)
 
-    actual = get_project_monthly_actuals(project_id)
+    actual = get_project_monthly_actuals(project_id, rate_cache, period_closed_cache)
     current = datetime.now().strftime('%Y-%m')
     months = sorted(set(plan) | set(actual))
 
@@ -592,6 +604,8 @@ def get_project_monthly_rollup(project_id, milestones=None):
     run_plan_profit = run_fact_profit = 0.0
     td = {'plan_income': 0.0, 'plan_expense': 0.0, 'fact_income': 0.0, 'fact_expense': 0.0}
     fact_total_income = fact_total_expense = 0.0
+    fact_total_labor = fact_total_direct = fact_total_hours = 0.0
+    plan_total_hours = 0.0
     for p in months:
         pl = plan.get(p, {'income': 0.0, 'expense': 0.0, 'hours': 0.0})
         fa = actual.get(p, _empty_bucket())
@@ -601,6 +615,10 @@ def get_project_monthly_rollup(project_id, milestones=None):
         run_fact_profit += fact_profit
         fact_total_income += fa['income']
         fact_total_expense += fa['expense']
+        fact_total_labor += fa['labor']
+        fact_total_direct += fa['direct']
+        fact_total_hours += fa['hours']
+        plan_total_hours += pl['hours']
         if p < current:
             td['plan_income'] += pl['income']
             td['plan_expense'] += pl['expense']
@@ -664,8 +682,12 @@ def get_project_monthly_rollup(project_id, milestones=None):
         'totals': {
             'plan_income': plan_total_income, 'plan_expense': plan_total_expense,
             'plan_profit': plan_total_income - plan_total_expense,
+            'plan_hours': plan_total_hours,
             'fact_income': fact_total_income, 'fact_expense': fact_total_expense,
             'fact_profit': fact_total_income - fact_total_expense,
+            # Lifetime split — reconciles with calculate_project_cost()
+            'fact_labor': fact_total_labor, 'fact_direct': fact_total_direct,
+            'fact_hours': fact_total_hours,
         },
         'status': {'money': money, 'schedule': schedule,
                    'collections': collections, 'expense': expense_badge,
@@ -677,25 +699,65 @@ def get_project_monthly_rollup(project_id, milestones=None):
     }
 
 
+# Whole-project expense variance bands (the /budget page's long-standing rule)
+_BUDGET_OVER = 5     # fact expense more than +5 % over the baseline → over budget
+_BUDGET_UNDER = -10  # more than 10 % under → comfortably inside
+
+
+def _budget_verdict(d_pct):
+    """(status_key, css_class) for whole-project expense variance."""
+    if d_pct > _BUDGET_OVER:
+        return 'over', 'loss'
+    if d_pct < _BUDGET_UNDER:
+        return 'under', 'profit'
+    return 'border', ''
+
+
 def get_plan_overview():
-    """One row per billable project that has milestones or any actuals:
-    plan-to-date vs fact-to-date, headline status, milestone counts."""
+    """One row per billable project that has milestones or any actuals.
+
+    Each row carries BOTH portfolio lenses:
+      to_date — time-phased. Day-weighted milestone plan vs date-based actuals,
+                months strictly before the current one. "Are we where we should
+                be by now?" Verdict: the on/edge/off traffic light.
+      whole   — whole-project. The frozen projects.planned_* baseline vs
+                lifetime actuals. "Will we come in over budget?" Verdict: the
+                ±5/−10 cost badge.
+    They measure different things and are never reconciled into one number.
+    """
     conn = get_db()
     projects = conn.execute('''
         SELECT p.id, p.name, p.status, p.plan_frozen_date,
+               p.planned_hours, p.planned_cost, p.planned_outsourcing,
+               p.planned_material, p.estimated_total_hours,
                (SELECT COUNT(*) FROM project_phases pp WHERE pp.project_id = p.id) AS ms_total,
                (SELECT COUNT(*) FROM project_phases pp
-                 WHERE pp.project_id = p.id AND pp.status = 'done') AS ms_done
+                 WHERE pp.project_id = p.id AND pp.status = 'done') AS ms_done,
+               (SELECT COUNT(DISTINCT ms.staff_id) FROM milestone_staff ms
+                 JOIN project_phases pp ON ms.phase_id = pp.id
+                 WHERE pp.project_id = p.id) AS plan_workers
         FROM projects p WHERE p.is_billable = 1 ORDER BY p.name
     ''').fetchall()
+    fact_workers = {r['project_id']: r['n'] for r in conn.execute(
+        "SELECT project_id, COUNT(DISTINCT staff_id) AS n FROM project_hours"
+        " GROUP BY project_id").fetchall()}
     conn.close()
 
     rows = []
     counts = {'on': 0, 'edge': 0, 'off': 0, 'none': 0}
     totals = {'plan_income': 0.0, 'plan_expense': 0.0, 'plan_profit': 0.0,
               'fact_income': 0.0, 'fact_expense': 0.0, 'fact_profit': 0.0}
+    w_totals = {'p_hrs': 0.0, 'p_cost': 0.0, 'p_direct': 0.0, 'p_total': 0.0,
+                'f_hrs': 0.0, 'f_cost': 0.0, 'f_direct': 0.0, 'f_total': 0.0}
+    # Fact totals of *planned* projects only, so the JAMI variance row compares
+    # like with like (unplanned projects have no plan side).
+    planned_fact_total = 0.0
+    # One rate/period resolution shared across every project in the loop
+    rate_cache, closed_cache = {}, {}
+
     for p in projects:
-        rollup = get_project_monthly_rollup(p['id'])
+        rollup = get_project_monthly_rollup(p['id'], rate_cache=rate_cache,
+                                            period_closed_cache=closed_cache)
         if not rollup['months'] and not p['ms_total']:
             continue  # nothing planned, nothing happened — not worth a row
         headline = rollup['status']['headline']
@@ -704,6 +766,39 @@ def get_plan_overview():
         for k in totals:
             totals[k] += td[k]
         plan_months = [r['period'] for r in rollup['months'] if not r['unplanned']]
+
+        # ── Whole-project lens: frozen baseline vs lifetime actuals ──
+        tot = rollup['totals']
+        f_hrs, f_cost = tot['fact_hours'], tot['fact_labor']
+        f_direct = tot['fact_direct']
+        f_total = f_cost + f_direct
+        p_hrs = p['planned_hours'] or 0
+        p_cost = p['planned_cost'] or 0
+        p_direct = (p['planned_outsourcing'] or 0) + (p['planned_material'] or 0)
+        p_total = p_cost + p_direct
+        has_plan = p_hrs > 0 or p_cost > 0
+        if has_plan:
+            d_total = f_total - p_total
+            d_pct = (d_total / max(p_total, 1)) * 100
+            b_status, b_class = _budget_verdict(d_pct)
+            d_hrs, d_cost = f_hrs - p_hrs, f_cost - p_cost
+            planned_fact_total += f_total
+            w_totals['p_hrs'] += p_hrs
+            w_totals['p_cost'] += p_cost
+            w_totals['p_direct'] += p_direct
+            w_totals['p_total'] += p_total
+        else:
+            # Never fabricate a plan from the actuals — that made every
+            # unplanned project look "on budget". Show it as unplanned and
+            # keep it out of the plan-side totals.
+            p_hrs = p['estimated_total_hours'] or 0
+            p_cost = p_direct = p_total = 0
+            d_hrs = d_cost = d_total = d_pct = 0
+            b_status, b_class = 'noplan', 'noplan'
+        for k, v in (('f_hrs', f_hrs), ('f_cost', f_cost),
+                     ('f_direct', f_direct), ('f_total', f_total)):
+            w_totals[k] += v
+
         rows.append({
             'id': p['id'], 'name': p['name'], 'project_status': p['status'],
             'plan_frozen_date': p['plan_frozen_date'],
@@ -713,8 +808,23 @@ def get_plan_overview():
             'to_date': td,
             'status': rollup['status'],
             'any_late': rollup['any_late'],
+            'whole': {
+                'has_plan': has_plan,
+                'p_workers': p['plan_workers'] or 0,
+                'f_workers': fact_workers.get(p['id'], 0),
+                'p_hrs': p_hrs, 'p_cost': p_cost, 'p_direct': p_direct, 'p_total': p_total,
+                'f_hrs': f_hrs, 'f_cost': f_cost, 'f_direct': f_direct, 'f_total': f_total,
+                'd_hrs': d_hrs, 'd_cost': d_cost, 'd_total': d_total, 'd_pct': d_pct,
+                'status': b_status, 'css': b_class,
+            },
         })
-    return {'rows': rows, 'counts': counts, 'totals': totals}
+
+    t_d_total = planned_fact_total - w_totals['p_total']
+    t_d_pct = (t_d_total / max(w_totals['p_total'], 1)) * 100
+    return {'rows': rows, 'counts': counts, 'totals': totals,
+            'whole_totals': w_totals, 'whole_d_total': t_d_total,
+            'whole_d_pct': t_d_pct,
+            'whole_d_css': 'profit' if t_d_pct <= 0 else 'loss'}
 
 
 def get_projects_on_course_summary():
@@ -730,30 +840,80 @@ def get_projects_on_course_summary():
     }
 
 
-# ========== Pricing-freeze generation ==========
+# ========== Plan roll-up ==========
 
-def generate_milestones_from_pricing(project_id, schedule_rows, total_income,
-                                     total_hours, labor_cost, outsourcing=0,
-                                     material=0, overwrite=False):
-    """Create the milestone schedule frozen from the pricing page.
+def rollup_milestone_plan(project_id):
+    """The live sum of the project's milestone plans — no writes.
+
+    project_phases.planned_* is the working plan; this is what
+    freeze_project_plan() copies into projects.planned_* as the baseline, and
+    what the project card compares against that baseline to detect drift.
+    Returns None for an unknown project.
+    """
+    conn = get_db()
+    try:
+        if not conn.execute("SELECT 1 FROM projects WHERE id=?", (project_id,)).fetchone():
+            return None
+        row = conn.execute('''
+            SELECT COUNT(*) AS n,
+                   COALESCE(SUM(planned_hours), 0) AS hours,
+                   COALESCE(SUM(planned_cost), 0) AS cost,
+                   COALESCE(SUM(planned_revenue), 0) AS revenue,
+                   COALESCE(SUM(planned_outsourcing), 0) AS outsourcing,
+                   COALESCE(SUM(planned_material), 0) AS material
+            FROM project_phases WHERE project_id=? AND status != 'cancelled'
+        ''', (project_id,)).fetchone()
+    finally:
+        conn.close()
+    return {
+        'count': row['n'],
+        'planned_hours': row['hours'],
+        'planned_cost': row['cost'],
+        'planned_revenue': row['revenue'],
+        'planned_outsourcing': row['outsourcing'],
+        'planned_material': row['material'],
+    }
+
+
+# ========== Schedule generation ==========
+
+def generate_milestone_schedule(project_id, schedule_rows, totals=None, overwrite=False):
+    """Create a milestone schedule for a project.
 
     schedule_rows: [{name, work_type, start 'YYYY-MM', end 'YYYY-MM',
                      income_pct, hours_pct}, ...]
-    planned_cost follows hours share (risk-exclusive labor); outsourcing and
-    material land on the last milestone. The last row absorbs all rounding
-    remainders so milestone totals equal the frozen plan exactly.
-    Returns (created_count, error) where error ∈ (None,'empty','pct','exists','locked').
+
+    totals=None → skeleton mode: names, work types and dates only, all plan
+    figures zero and no percentage validation. The schedule is then filled in
+    bottom-up per milestone (staff hour rows, outsourcing, material) on the
+    project page.
+
+    totals={'income','hours','labor_cost','outsourcing','material'} → the rows'
+    percentages split those figures. planned_cost follows the hours share
+    (risk-exclusive labor); outsourcing and material follow the income share.
+    The last row absorbs all rounding remainders so milestone totals equal the
+    supplied totals exactly.
+
+    Returns (created_count, error), error ∈ (None,'empty','pct','exists','locked').
     """
     rows = [r for r in schedule_rows if (r.get('name') or '').strip()]
     if not rows:
         return 0, 'empty'
-    try:
-        i_pcts = [float(r.get('income_pct') or 0) for r in rows]
-        h_pcts = [float(r.get('hours_pct') or 0) for r in rows]
-    except (TypeError, ValueError):
-        return 0, 'pct'
-    if abs(sum(i_pcts) - 100) > 0.5 or abs(sum(h_pcts) - 100) > 0.5:
-        return 0, 'pct'
+    i_pcts = h_pcts = [0] * len(rows)
+    if totals is not None:
+        try:
+            i_pcts = [float(r.get('income_pct') or 0) for r in rows]
+            h_pcts = [float(r.get('hours_pct') or 0) for r in rows]
+        except (TypeError, ValueError):
+            return 0, 'pct'
+        if abs(sum(i_pcts) - 100) > 0.5 or abs(sum(h_pcts) - 100) > 0.5:
+            return 0, 'pct'
+
+    total_income = (totals or {}).get('income', 0) or 0
+    total_hours = (totals or {}).get('hours', 0) or 0
+    labor_cost = (totals or {}).get('labor_cost', 0) or 0
+    outsourcing = (totals or {}).get('outsourcing', 0) or 0
+    material = (totals or {}).get('material', 0) or 0
 
     conn = get_db()
     try:
@@ -777,19 +937,30 @@ def generate_milestones_from_pricing(project_id, schedule_rows, total_income,
                          context=f'milestones regenerated from pricing (project {project_id})')
 
         now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        acc_i = acc_h = acc_c = 0.0
+        acc_i = acc_h = acc_c = acc_o = acc_m = 0.0
         created = 0
         for i, r in enumerate(rows):
             last = i == len(rows) - 1
-            if last:
+            if totals is None:
+                inc = hrs = cost = out = mat = 0
+            elif last:
+                # The last row absorbs every rounding remainder so the schedule
+                # sums to the supplied totals exactly.
                 inc, hrs, cost = total_income - acc_i, total_hours - acc_h, labor_cost - acc_c
+                out, mat = outsourcing - acc_o, material - acc_m
             else:
                 inc = total_income * i_pcts[i] / 100
                 hrs = total_hours * h_pcts[i] / 100
                 cost = labor_cost * h_pcts[i] / 100
+                # Direct costs follow the income share rather than landing
+                # entirely on the last milestone, so intermediate expense is real.
+                out = outsourcing * i_pcts[i] / 100
+                mat = material * i_pcts[i] / 100
                 acc_i += inc
                 acc_h += hrs
                 acc_c += cost
+                acc_o += out
+                acc_m += mat
             start_m, end_m = (r.get('start') or '').strip(), (r.get('end') or '').strip()
             if start_m and end_m and end_m < start_m:
                 start_m, end_m = end_m, start_m
@@ -801,12 +972,35 @@ def generate_milestones_from_pricing(project_id, schedule_rows, total_income,
                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
                 (project_id, f"{wt or 'ms'}-{i + 1}", r['name'].strip(), (i + 1) * 10, wt,
                  _month_first_day(start_m), _month_last_day(end_m or start_m),
-                 hrs, cost, outsourcing if last else 0, material if last else 0,
-                 inc, 'planned', now))
+                 hrs, cost, out, mat, inc, 'planned', now))
             created += 1
+        kind = 'skeleton' if totals is None else 'pricing'
         _write_audit(conn, 'create', 'project_phases', None,
-                     context=f'{created} milestones generated from pricing (project {project_id})')
+                     context=f'{created} milestones generated ({kind}) (project {project_id})')
         conn.commit()
         return created, None
     finally:
         conn.close()
+
+
+def generate_milestones_from_pricing(project_id, schedule_rows, total_income,
+                                     total_hours, labor_cost, outsourcing=0,
+                                     material=0, overwrite=False):
+    """Percentage-split generation — thin wrapper over generate_milestone_schedule."""
+    return generate_milestone_schedule(
+        project_id, schedule_rows,
+        totals={'income': total_income, 'hours': total_hours,
+                'labor_cost': labor_cost, 'outsourcing': outsourcing,
+                'material': material},
+        overwrite=overwrite)
+
+
+# The six standard design-office stages, used by "Add standard schedule".
+STANDARD_SCHEDULE = [
+    {'name': 'Eskiz loyiha', 'work_type': 'eskiz', 'income_pct': 15, 'hours_pct': 15},
+    {'name': 'Arxitektura yechimlari', 'work_type': 'ar', 'income_pct': 30, 'hours_pct': 35},
+    {'name': 'Konstruktiv yechimlar', 'work_type': 'kj', 'income_pct': 25, 'hours_pct': 30},
+    {'name': 'Muhandislik tarmoqlari', 'work_type': 'im', 'income_pct': 15, 'hours_pct': 10},
+    {'name': 'Smeta hujjatlari', 'work_type': 'smeta', 'income_pct': 10, 'hours_pct': 5},
+    {'name': 'Avtorlik nazorati', 'work_type': 'nazorat', 'income_pct': 5, 'hours_pct': 5},
+]

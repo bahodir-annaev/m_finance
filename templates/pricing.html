@@ -1,189 +1,289 @@
 {% extends "base.html" %}
 {% block content %}
-<h1 class="page-title">Pricing Engine</h1>
-<p class="page-subtitle">Yangi proekt uchun narx hisoblash — cost rate, billing rate, risk scoring</p>
+<h1 class="page-title">{{ t('nav_pricing') }}</h1>
+<p class="page-subtitle">{{ t('pp_pick_hint') }}</p>
 
-{% if gen_msg %}
-<div class="alert alert-{{ gen_msg[0] }}">{{ gen_msg[1] }}</div>
-{% endif %}
+{# ── Scratch quote: a prospect with no project record ── #}
+<div class="card">
+  <div style="margin-bottom:10px">
+    <h3 style="margin:0">{{ t('pp_scratch_title') }}</h3>
+    <div style="font-size:12px;color:var(--text-light)">{{ t('pp_scratch_hint') }}</div>
+  </div>
 
-{% if result %}
-<div class="card" style="border-left:4px solid var(--green)">
-  <h3>Narx hisoblash natijasi (Risk koeff: {{ result.risk_coeff }})</h3>
-  <div class="grid-3" style="margin:20px 0">
-    <div class="price-card">
-      <div class="price-label">MINIMUM shartnoma</div>
-      <div class="price-value" style="color:var(--red)">{{ fmt(result.minimum_contract) }}</div>
-      <div class="price-usd">${{ fmt(result.minimum_usd, 0) }} USD</div>
+  <div class="grid-2" style="align-items:start">
+    <div>
+      <h4 style="margin:0 0 10px;color:var(--primary);font-size:13px">{{ t('pp_risk_title') }}</h4>
+      <div class="grid-2">
+        <div class="field"><label>{{ t('pp_risk_deadline') }}</label>
+          <select id="q_deadline" onchange="qCalc()">
+            <option value="3">{{ t('pp_risk_deadline_short') }}</option>
+            <option value="6" selected>{{ t('pp_risk_deadline_mid') }}</option>
+            <option value="10">{{ t('pp_risk_deadline_long') }}</option>
+          </select></div>
+        <div class="field"><label>{{ t('pp_risk_client') }}</label>
+          <select id="q_client_type" onchange="qCalc()">
+            <option value="regular">{{ t('pp_risk_client_regular') }}</option>
+            <option value="new" selected>{{ t('pp_risk_client_new') }}</option>
+            <option value="government">{{ t('pp_risk_client_gov') }}</option>
+          </select></div>
+        <div class="field"><label>{{ t('pp_risk_complexity') }}</label>
+          <select id="q_complexity" onchange="qCalc()">
+            <option value="simple">{{ t('pp_risk_simple') }}</option>
+            <option value="medium" selected>{{ t('pp_risk_medium') }}</option>
+            <option value="high">{{ t('pp_risk_high') }}</option>
+          </select></div>
+        <div class="field"><label>{{ t('pp_risk_currency') }}</label>
+          <select id="q_currency" onchange="qCalc()">
+            <option value="UZS" selected>UZS</option>
+            <option value="USD">USD</option>
+            <option value="KGS">KGS/EUR</option>
+          </select></div>
+      </div>
     </div>
-    <div class="price-card recommended">
-      <div class="price-label">TARGET ({{ (result.target_margin * 100)|round|int }}% margin)</div>
-      <div class="price-value" style="color:var(--green)">{{ fmt(result.target_contract) }}</div>
-      <div class="price-usd">${{ fmt(result.target_usd, 0) }} USD</div>
-    </div>
-    <div class="price-card">
-      <div class="price-label">PREMIUM (+20%)</div>
-      <div class="price-value">{{ fmt(result.premium_contract) }}</div>
-      <div class="price-usd">${{ fmt(result.premium_usd, 0) }} USD</div>
+    <div class="grid-3" id="qTiles" style="display:none">
+      <div class="price-card">
+        <div class="price-label">{{ t('pp_price_minimum') }}</div>
+        <div class="price-value" style="color:var(--red)" id="qMin">0</div>
+        <div class="price-usd" id="qMinUsd"></div>
+      </div>
+      <div class="price-card recommended">
+        <div class="price-label" id="qTargetLabel">{{ t('pp_price_target', (target_margin * 100)|round|int) }}</div>
+        <div class="price-value" style="color:var(--green)" id="qTarget">0</div>
+        <div class="price-usd" id="qTargetUsd"></div>
+      </div>
+      <div class="price-card">
+        <div class="price-label">{{ t('pp_price_premium') }}</div>
+        <div class="price-value" id="qPremium">0</div>
+        <div class="price-usd" id="qPremiumUsd"></div>
+      </div>
     </div>
   </div>
+
+  <div style="overflow-x:auto;margin-top:14px">
+    <table style="font-size:12px">
+      <thead><tr>
+        <th>{{ t('pricing_ms_row_name') }}</th>
+        <th>{{ t('ms_th_work_type') }}</th>
+        <th>{{ t('ms_field_start') }}</th>
+        <th>{{ t('ms_field_end') }}</th>
+        <th>{{ t('pp_staff_hours') }}</th>
+        <th>{{ t('pp_th_outsourcing') }}</th>
+        <th>{{ t('pp_th_material') }}</th>
+        <th class="num">{{ t('pp_th_expense') }}</th>
+        <th class="num">{{ t('pp_th_price') }}</th>
+        <th class="num">{{ t('pp_th_cum_expense') }}</th>
+        <th class="num">{{ t('pp_th_cum_price') }}</th>
+        <th></th>
+      </tr></thead>
+      <tbody id="qRows"></tbody>
+      <tfoot><tr style="font-weight:700;background:#EDE8E0">
+        <td colspan="7">{{ t('pp_total') }}</td>
+        <td class="num" id="qTotExpense">0</td>
+        <td class="num" id="qTotPrice">0</td>
+        <td colspan="3"></td>
+      </tr></tfoot>
+    </table>
+  </div>
+
+  <div style="display:flex;gap:8px;margin-top:10px;align-items:center;flex-wrap:wrap">
+    <button type="button" class="btn btn-outline btn-sm" onclick="qAddRow()">+ {{ t('pp_add_row') }}</button>
+    <button type="button" class="btn btn-outline btn-sm" onclick="qFillTemplate()">{{ t('pricing_ms_default_tpl') }}</button>
+    <button type="button" class="btn btn-primary btn-sm" onclick="qCalc()">{{ t('pp_scratch_calc') }}</button>
+    <span style="margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+      <select id="qSaveProject" style="font-size:12px">
+        <option value="">—</option>
+        {% for p in projects %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
+      </select>
+      <label style="font-size:12px;display:flex;gap:4px;align-items:center;cursor:pointer">
+        <input type="checkbox" id="qOverwrite"> {{ t('pricing_ms_overwrite') }}
+      </label>
+      <button type="button" class="btn btn-outline btn-sm" onclick="qSave()">{{ t('pp_scratch_save') }}</button>
+    </span>
+  </div>
+</div>
+
+{# ── Project picker: the full workspace lives on the project page ── #}
+<div class="card">
+  <h3>{{ t('pp_pick_title') }}</h3>
+  {% if projects %}
   <table>
-    <tr><th>Xodim</th><th>Lavozim</th><th>Soatlar</th><th>Cost Rate</th><th>Billing Rate</th><th>Billing Value</th></tr>
-    {% for d in result.staff_details %}
+    <thead><tr>
+      <th>{{ t('plan_th_project') }}</th>
+      <th>{{ t('pp_pick_client') }}</th>
+      <th>{{ t('proj_th_milestones') }}</th>
+      <th>{{ t('ms_frozen') }}</th>
+      <th></th>
+    </tr></thead>
+    <tbody>
+    {% for p in projects %}
     <tr>
-      <td>{{ d.name }}</td><td>{{ d.role }}</td>
-      <td class="num">{{ fmt(d.hours, 0) }}</td>
-      <td class="num">{{ fmt(d.cost_rate) }}</td>
-      <td class="num">{{ fmt(d.billing_rate) }}</td>
-      <td class="num">{{ fmt(d.billing) }}</td>
+      <td><b>{{ p.name }}</b></td>
+      <td>{{ p.client or '—' }}</td>
+      <td>{{ t('pp_pick_ms_count', p.ms_total) }}</td>
+      <td>{{ p.plan_frozen_date or t('pp_frozen_none') }}</td>
+      <td class="no-print"><a href="/projects/{{ p.id }}" class="btn btn-outline btn-sm">{{ t('pp_pick_open') }} &raquo;</a></td>
     </tr>
     {% endfor %}
-    <tr style="font-weight:700;background:#EDE8E0">
-      <td colspan="2">JAMI</td>
-      <td class="num">{{ fmt(result.total_hours) }}</td>
-      <td></td><td></td>
-      <td class="num">{{ fmt(result.total_billing) }}</td>
-    </tr>
+    </tbody>
   </table>
-  <div style="margin-top:16px;font-size:13px;color:var(--text-light)">
-    MIZAN cost: {{ fmt(result.mizan_cost) }} | Outsourcing: {{ fmt(result.outsourcing) }} | Material: {{ fmt(result.material) }}
-  </div>
+  {% else %}
+  <div class="empty-state" style="padding:24px">{{ t('plan_empty') }}</div>
+  {% endif %}
 </div>
-{% endif %}
+{% endblock %}
 
-<div class="card">
-  <h3>Narx hisoblash</h3>
-  <form method="POST">
-    <div class="grid-2">
-      <div>
-        <h4 style="margin-bottom:12px;color:var(--primary)">Xodimlar va soatlar</h4>
-        {% for s in staff_list %}
-        <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
-          <span style="width:120px;font-size:13px">{{ s.name }}</span>
-          <span style="width:120px;font-size:11px;color:var(--text-light)">{{ s.role }}</span>
-          <input name="hours_{{ s.id }}" type="number" min="0" value="0" style="width:80px">
-          <span style="font-size:11px;color:var(--text-light)">soat</span>
-        </div>
-        {% endfor %}
-      </div>
-      <div>
-        <h4 style="margin-bottom:12px;color:var(--primary)">Risk parametrlari</h4>
-        <div class="field"><label>Muddat (oylar)</label>
-          <select name="deadline">
-            <option value="3">&lt; 4 oy (yuqori risk)</option>
-            <option value="6" selected>4-8 oy (o'rta)</option>
-            <option value="10">&gt; 8 oy (past risk)</option>
-          </select></div>
-        <div class="field"><label>Mijoz turi</label>
-          <select name="client_type">
-            <option value="regular">Doimiy mijoz</option>
-            <option value="new" selected>Yangi mijoz</option>
-            <option value="government">Davlat</option>
-          </select></div>
-        <div class="field"><label>Murakkablik</label>
-          <select name="complexity">
-            <option value="simple">Oddiy</option>
-            <option value="medium" selected>O'rta</option>
-            <option value="high">Yuqori</option>
-          </select></div>
-        <div class="field"><label>Valyuta</label>
-          <select name="currency">
-            <option value="UZS">UZS (so'm)</option>
-            <option value="USD">USD (dollar)</option>
-            <option value="KGS">KGS/EUR (boshqa)</option>
-          </select></div>
-        <div class="field"><label>Outsourcing xarajat (UZS)</label>
-          <input name="outsourcing" type="number" value="0"></div>
-        <div class="field"><label>Material xarajat (UZS)</label>
-          <input name="material" type="number" value="0"></div>
-        <div class="field" style="border-top:1px solid var(--border);padding-top:12px;margin-top:8px">
-          <label style="color:var(--primary);font-weight:700">PLAN ga saqlash (ixtiyoriy)</label>
-          <select name="save_project">
-            <option value="">Saqlamaslik</option>
-            {% for p in pricing_projects %}<option value="{{ p.name }}">{{ p.name }}</option>{% endfor %}
-          </select></div>
-      </div>
-    </div>
-
-    <div style="border-top:1px solid var(--border);margin-top:16px;padding-top:12px">
-      <label style="display:flex;align-items:center;gap:8px;font-weight:700;color:var(--primary);cursor:pointer">
-        <input type="checkbox" name="gen_milestones" id="genMs"
-               onchange="document.getElementById('msEditor').style.display=this.checked?'':'none'">
-        {{ t('pricing_ms_title') }}
-      </label>
-      <div id="msEditor" style="display:none;margin-top:10px">
-        <table style="font-size:12px">
-          <thead><tr>
-            <th>{{ t('pricing_ms_row_name') }}</th>
-            <th>{{ t('ms_th_work_type') }}</th>
-            <th>{{ t('ms_field_start') }}</th>
-            <th>{{ t('ms_field_end') }}</th>
-            <th>{{ t('pricing_ms_income_pct') }}</th>
-            <th>{{ t('pricing_ms_hours_pct') }}</th>
-            <th></th>
-          </tr></thead>
-          <tbody id="msRows"></tbody>
-        </table>
-        <div style="display:flex;gap:8px;margin-top:8px;align-items:center;flex-wrap:wrap">
-          <button type="button" class="btn btn-outline btn-sm" onclick="addMsRow()">+</button>
-          <button type="button" class="btn btn-outline btn-sm" onclick="fillDefaultTpl()">{{ t('pricing_ms_default_tpl') }}</button>
-          <span id="msPctHint" style="font-size:12px;color:var(--text-light)"></span>
-          <label style="margin-left:auto;font-size:12px;display:flex;gap:6px;align-items:center;cursor:pointer">
-            <input type="checkbox" name="ms_overwrite"> {{ t('pricing_ms_overwrite') }}
-          </label>
-        </div>
-      </div>
-    </div>
-
-    <button type="submit" class="btn btn-primary" style="margin-top:16px">Narxni hisoblash</button>
-  </form>
-</div>
+{% block scripts %}
 <script>
 var WORK_TYPES = [
 {% for wt in work_types %}  {code: {{ wt.code|tojson }}, label: {{ wt.label_uz|tojson }}},
 {% endfor %}];
-var PCT_HINT = {{ t('pricing_ms_pct_hint')|tojson }};
+var Q_STAFF = [
+{% for s in staff_rates %}  {id: {{ s.id }}, name: {{ s.name|tojson }}},
+{% endfor %}];
+var STANDARD = [
+{% for r in standard_schedule %}  {name: {{ r.name|tojson }}, work_type: {{ r.work_type|tojson }}},
+{% endfor %}];
+var Q_ERR = {
+  empty: {{ t('pricing_ms_err_empty')|tojson }},
+  exists: {{ t('pricing_ms_err_exists')|tojson }},
+  locked: {{ t('pricing_ms_err_locked')|tojson }}
+};
+var Q_SAVED = {{ t('pp_scratch_saved')|tojson }};
 
-function wtOptions(selected) {
+function qFmt(n, dec) {
+  return (n || 0).toLocaleString('ru-RU', {maximumFractionDigits: dec || 0});
+}
+
+function qOptions(list, valKey, labKey) {
   var html = '<option value=""></option>';
-  WORK_TYPES.forEach(function (wt) {
-    html += '<option value="' + wt.code + '"' + (wt.code === selected ? ' selected' : '') + '>' + wt.label + '</option>';
+  list.forEach(function (o) {
+    html += '<option value="' + o[valKey] + '">' + o[labKey] + '</option>';
   });
   return html;
 }
 
-function addMsRow(name, wt, ipct, hpct) {
+function qAddRow(name, wt) {
   var tr = document.createElement('tr');
+  tr.className = 'q-row';
   tr.innerHTML =
-    '<td><input name="ms_name" value="' + (name || '') + '" style="width:150px"></td>' +
-    '<td><select name="ms_work_type">' + wtOptions(wt || '') + '</select></td>' +
-    '<td><input type="month" name="ms_start" style="width:130px"></td>' +
-    '<td><input type="month" name="ms_end" style="width:130px"></td>' +
-    '<td><input type="number" name="ms_income_pct" value="' + (ipct || 0) + '" min="0" max="100" step="0.5" style="width:70px" oninput="updPct()"></td>' +
-    '<td><input type="number" name="ms_hours_pct" value="' + (hpct || 0) + '" min="0" max="100" step="0.5" style="width:70px" oninput="updPct()"></td>' +
-    '<td><button type="button" class="btn btn-outline btn-sm" onclick="this.closest(\'tr\').remove();updPct()">&times;</button></td>';
-  document.getElementById('msRows').appendChild(tr);
-  updPct();
+    '<td><input class="q-name" value="" style="width:140px"></td>' +
+    '<td><select class="q-wt">' + qOptions(WORK_TYPES, 'code', 'label') + '</select></td>' +
+    '<td><input type="month" class="q-start" style="width:120px"></td>' +
+    '<td><input type="month" class="q-end" style="width:120px"></td>' +
+    '<td><div class="q-staff"></div>' +
+      '<button type="button" class="btn btn-outline btn-sm" style="font-size:11px;padding:1px 6px"' +
+      ' onclick="qAddStaff(this.closest(\'tr\'))">+</button></td>' +
+    '<td><input type="number" class="q-out" value="0" min="0" style="width:100px"></td>' +
+    '<td><input type="number" class="q-mat" value="0" min="0" style="width:100px"></td>' +
+    '<td class="num q-expense">0</td>' +
+    '<td class="num q-price">0</td>' +
+    '<td class="num q-cum-expense" style="color:var(--text-light)">0</td>' +
+    '<td class="num q-cum-price" style="color:var(--text-light)">0</td>' +
+    '<td><button type="button" class="btn btn-outline btn-sm"' +
+      ' onclick="this.closest(\'tr\').remove()">&times;</button></td>';
+  document.getElementById('qRows').appendChild(tr);
+  if (name) tr.querySelector('.q-name').value = name;
+  if (wt) tr.querySelector('.q-wt').value = wt;
+  qAddStaff(tr);
+  return tr;
 }
 
-function fillDefaultTpl() {
-  document.getElementById('msRows').innerHTML = '';
-  [['Eskiz loyiha', 'eskiz', 15, 15],
-   ['Arxitektura yechimlari', 'ar', 30, 35],
-   ['Konstruktiv yechimlar', 'kj', 25, 30],
-   ['Muhandislik tarmoqlari', 'im', 15, 10],
-   ['Smeta hujjatlari', 'smeta', 10, 5],
-   ['Avtorlik nazorati', 'nazorat', 5, 5]
-  ].forEach(function (r) { addMsRow(r[0], r[1], r[2], r[3]); });
+function qAddStaff(tr) {
+  var div = document.createElement('div');
+  div.style.cssText = 'display:flex;gap:4px;margin-bottom:2px';
+  div.innerHTML =
+    '<select class="q-sid" style="width:110px;font-size:11px">' + qOptions(Q_STAFF, 'id', 'name') + '</select>' +
+    '<input type="number" class="q-shrs" value="0" min="0" step="0.5" style="width:60px;font-size:11px">' +
+    '<button type="button" class="btn btn-outline btn-sm" style="font-size:11px;padding:0 6px"' +
+    ' onclick="this.parentNode.remove()">&times;</button>';
+  tr.querySelector('.q-staff').appendChild(div);
 }
 
-function updPct() {
-  var si = 0, sh = 0;
-  document.querySelectorAll('#msRows [name=ms_income_pct]').forEach(function (i) { si += parseFloat(i.value) || 0; });
-  document.querySelectorAll('#msRows [name=ms_hours_pct]').forEach(function (i) { sh += parseFloat(i.value) || 0; });
-  var el = document.getElementById('msPctHint');
-  el.textContent = PCT_HINT.replace('{0}', si.toFixed(1)).replace('{1}', sh.toFixed(1));
-  el.style.color = (Math.abs(si - 100) > 0.5 || Math.abs(sh - 100) > 0.5) ? 'var(--red)' : 'var(--done)';
+function qFillTemplate() {
+  document.getElementById('qRows').innerHTML = '';
+  STANDARD.forEach(function (r) { qAddRow(r.name, r.work_type); });
 }
+
+function qPayload() {
+  var rows = [];
+  document.querySelectorAll('#qRows .q-row').forEach(function (tr) {
+    var staff = [];
+    tr.querySelectorAll('.q-staff > div').forEach(function (d) {
+      staff.push({
+        staff_id: d.querySelector('.q-sid').value,
+        hours: parseFloat(d.querySelector('.q-shrs').value) || 0
+      });
+    });
+    rows.push({
+      name: tr.querySelector('.q-name').value,
+      work_type: tr.querySelector('.q-wt').value,
+      start: tr.querySelector('.q-start').value,
+      end: tr.querySelector('.q-end').value,
+      outsourcing: parseFloat(tr.querySelector('.q-out').value) || 0,
+      material: parseFloat(tr.querySelector('.q-mat').value) || 0,
+      staff: staff
+    });
+  });
+  return {
+    rows: rows,
+    risk: {
+      deadline_months: document.getElementById('q_deadline').value,
+      client_type: document.getElementById('q_client_type').value,
+      complexity: document.getElementById('q_complexity').value,
+      currency: document.getElementById('q_currency').value
+    }
+  };
+}
+
+function qCalc() {
+  var body = qPayload();
+  if (!body.rows.length) return;
+  fetch('/api/pricing/quote', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body)
+  }).then(function (r) { return r.json(); })
+    .then(function (res) {
+      if (res.status !== 'ok') { alert(res.error || 'Error'); return; }
+      var q = res.quote;
+      var trs = document.querySelectorAll('#qRows .q-row');
+      q.rows.forEach(function (row, i) {
+        if (!trs[i]) return;
+        trs[i].querySelector('.q-expense').textContent = qFmt(row.expense);
+        trs[i].querySelector('.q-price').textContent = qFmt(row.price);
+        trs[i].querySelector('.q-cum-expense').textContent = qFmt(row.cum_expense);
+        trs[i].querySelector('.q-cum-price').textContent = qFmt(row.cum_price);
+      });
+      document.getElementById('qTotExpense').textContent = qFmt(q.total_expense);
+      document.getElementById('qTotPrice').textContent = qFmt(q.plan_revenue_total);
+      document.getElementById('qMin').textContent = qFmt(q.minimum_contract);
+      document.getElementById('qTarget').textContent = qFmt(q.target_contract);
+      document.getElementById('qPremium').textContent = qFmt(q.premium_contract);
+      document.getElementById('qMinUsd').textContent = '$' + qFmt(q.minimum_usd) + ' USD';
+      document.getElementById('qTargetUsd').textContent = '$' + qFmt(q.target_usd) + ' USD';
+      document.getElementById('qPremiumUsd').textContent = '$' + qFmt(q.premium_usd) + ' USD';
+      document.getElementById('qTiles').style.display = '';
+    }).catch(function () { alert('Error'); });
+}
+
+function qSave() {
+  var pid = document.getElementById('qSaveProject').value;
+  if (!pid) { alert(Q_ERR.empty); return; }
+  var body = qPayload();
+  body.project_id = pid;
+  body.overwrite = document.getElementById('qOverwrite').checked;
+  fetch('/api/pricing/quote/save', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body)
+  }).then(function (r) { return r.json(); })
+    .then(function (res) {
+      if (res.status !== 'ok') { alert(Q_ERR[res.error] || res.error || 'Error'); return; }
+      alert(Q_SAVED.replace('{0}', res.created));
+      window.location = '/projects/' + res.project_id;
+    }).catch(function () { alert('Error'); });
+}
+
+qFillTemplate();
 </script>
 {% endblock %}

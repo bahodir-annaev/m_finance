@@ -1,88 +1,156 @@
 {% extends "base.html" %}
+{% from '_status_macros.html' import light_badge, headline_badge with context %}
 {% block content %}
+{#- The two lenses measure different things and are never reduced to one number:
+    TO DATE  — day-weighted milestone plan vs actuals, months before this one.
+    WHOLE    — frozen projects.planned_* baseline vs lifetime actuals. -#}
 <div class="page-header">
   <div>
     <h1 class="page-title">{{ t('budget_title') }}</h1>
-    <p class="page-subtitle">{{ t('budget_subtitle') }}</p>
+    <p class="page-subtitle">{{ t('bp_subtitle') }}</p>
   </div>
   <div class="page-actions no-print">
     <a href="/api/export/xlsx?sheet=budget" class="btn btn-outline">Excel</a>
     <button onclick="window.print()" class="btn btn-outline">Print</button>
   </div>
 </div>
+
+<div class="stats">
+  <div class="stat stat-green"><div class="label">{{ t('plan_status_on') }}</div>
+    <div class="value">{{ counts.on }}</div></div>
+  <div class="stat"><div class="label">{{ t('plan_status_edge') }}</div>
+    <div class="value" style="color:var(--amber)">{{ counts.edge }}</div></div>
+  <div class="stat stat-red"><div class="label">{{ t('plan_status_off') }}</div>
+    <div class="value">{{ counts.off }}</div></div>
+  <div class="stat"><div class="label">{{ t('plan_stat_plan_profit') }}</div>
+    <div class="value">{{ fmt(totals.plan_profit) }}</div><div class="sub">UZS</div></div>
+  <div class="stat {{ 'stat-green' if totals.fact_profit >= totals.plan_profit else 'stat-red' }}">
+    <div class="label">{{ t('plan_stat_fact_profit') }}</div>
+    <div class="value">{{ fmt(totals.fact_profit) }}</div><div class="sub">UZS</div></div>
+</div>
+
 <div class="card" style="overflow-x:auto">
   <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap" class="no-print">
-    <input type="text" id="bSearch" placeholder="Qidirish..." oninput="filterB()" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;width:200px;background:var(--surface)">
-    <select id="bFPL" onchange="filterB()" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:var(--surface)">
-      <option value="">Holat - JAMI</option>
-      <option value="profit">Byudjet ichida</option>
-      <option value="loss">Oshgan</option>
-      <option value="noplan">Reja yo'q</option>
+    <input type="text" id="bSearch" placeholder="{{ t('bp_search') }}" oninput="filterB()"
+           style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;width:200px;background:var(--surface)">
+    <select id="bFSt" onchange="filterB()"
+            style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:var(--surface)">
+      <option value="">{{ t('bp_filter_status') }} — {{ t('th_total') }}</option>
+      <option value="on">{{ t('plan_status_on') }}</option>
+      <option value="edge">{{ t('plan_status_edge') }}</option>
+      <option value="off">{{ t('plan_status_off') }}</option>
+      <option value="none">{{ t('plan_status_none') }}</option>
     </select>
-    <button onclick="document.getElementById('bSearch').value='';document.getElementById('bFPL').value='';filterB()" class="btn btn-outline btn-sm">Reset</button>
+    <select id="bFPL" onchange="filterB()"
+            style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:var(--surface)">
+      <option value="">{{ t('bp_filter_budget') }} — {{ t('th_total') }}</option>
+      <option value="under">{{ t('bp_budget_under') }}</option>
+      <option value="border">{{ t('bp_budget_border') }}</option>
+      <option value="over">{{ t('bp_budget_over') }}</option>
+      <option value="noplan">{{ t('bp_budget_noplan') }}</option>
+    </select>
+    <button onclick="document.getElementById('bSearch').value='';document.getElementById('bFSt').value='';document.getElementById('bFPL').value='';filterB()"
+            class="btn btn-outline btn-sm">Reset</button>
   </div>
+
+  {% if rows %}
   <table id="bTable" style="font-size:12px">
     <thead>
       <tr>
-        <th rowspan="2" style="vertical-align:bottom">Proekt</th>
-        <th colspan="5" style="background:#005C4A;text-align:center">PLAN (reja)</th>
-        <th colspan="5" style="background:#00382F;text-align:center">FAKT (haqiqiy)</th>
-        <th colspan="4" style="background:#001F1A;text-align:center">FARQ</th>
-        <th rowspan="2" style="vertical-align:bottom">Holat</th>
+        <th rowspan="2" style="vertical-align:bottom">{{ t('bp_th_project') }}</th>
+        <th rowspan="2" style="vertical-align:bottom">{{ t('plan_th_milestones') }}</th>
+        <th rowspan="2" style="vertical-align:bottom">{{ t('plan_th_months') }}</th>
+        <th colspan="4" style="background:#005C4A;text-align:center">{{ t('bp_grp_to_date') }}</th>
+        <th colspan="7" style="background:#00382F;text-align:center">{{ t('bp_grp_whole') }}</th>
+        <th rowspan="2" style="vertical-align:bottom">{{ t('plan_th_status') }}</th>
       </tr>
       <tr>
-        <th style="background:#005C4A">Ishchi</th><th style="background:#005C4A">Soat</th>
-        <th style="background:#005C4A">MIZAN (UZS)</th><th style="background:#005C4A">Outsrc</th><th style="background:#005C4A">Jami</th>
-        <th>Ishchi</th><th>Soat</th><th>MIZAN (UZS)</th><th>Outsrc</th><th>Jami</th>
-        <th style="background:#001F1A">Soat</th><th style="background:#001F1A">MIZAN</th>
-        <th style="background:#001F1A">Jami</th><th style="background:#001F1A">%</th>
+        <th class="num" style="background:#005C4A">{{ t('bp_th_plan') }}</th>
+        <th class="num" style="background:#005C4A">{{ t('bp_th_fact') }}</th>
+        <th class="num" style="background:#005C4A">{{ t('plan_th_profit') }}</th>
+        <th class="num" style="background:#005C4A">{{ t('bp_th_drift') }}</th>
+        <th class="num" style="background:#00382F">{{ t('bp_th_workers') }}</th>
+        <th class="num" style="background:#00382F">{{ t('bp_th_hours') }}</th>
+        <th class="num" style="background:#00382F">{{ t('bp_th_plan') }}</th>
+        <th class="num" style="background:#00382F">{{ t('bp_th_fact') }}</th>
+        <th class="num" style="background:#00382F">{{ t('bp_th_diff') }}</th>
+        <th class="num" style="background:#00382F">%</th>
+        <th style="background:#00382F">{{ t('bp_filter_budget') }}</th>
       </tr>
     </thead>
     <tbody id="bBody">
-      {% for row in rows %}
-      <tr data-pl="{{ row.pl_class }}">
-        <td><b>{{ row.project_name }}</b></td>
-        {% if row.has_plan %}
-        <td class="num">{{ row.p_workers }}</td><td class="num">{{ fmt(row.p_hrs, 0) }}</td>
-        <td class="num">{{ fmt(row.p_cost) }}</td><td class="num">{{ fmt(row.p_out) }}</td><td class="num">{{ fmt(row.p_total) }}</td>
+      {% for r in rows %}
+      {% set w = r.whole %}
+      <tr data-st="{{ r.status.headline }}" data-pl="{{ w.status }}">
+        <td><a href="/projects/{{ r.id }}" style="font-weight:600">{{ r.name }}</a></td>
+        <td style="white-space:nowrap">
+          {% if r.ms_total %}{{ r.ms_done }}/{{ r.ms_total }}
+            {%- if r.any_late %} <span class="loss" title="{{ t('ms_badge_late') }}">⚠</span>{% endif %}
+          {% else %}—{% endif %}
+        </td>
+        <td style="white-space:nowrap">{{ r.months_planned }}{% if r.months_range %}
+          <span style="font-size:10px;color:var(--text-light)">({{ r.months_range }})</span>{% endif %}</td>
+
+        {# ── TO DATE: time-phased ── #}
+        <td class="num">{{ fmt(r.to_date.plan_income) }}</td>
+        <td class="num">{{ fmt(r.to_date.fact_income) }}</td>
+        <td class="num {{ 'profit' if r.to_date.fact_profit >= 0 else 'loss' }}">{{ fmt(r.to_date.fact_profit) }}</td>
+        <td class="num {{ 'profit' if r.to_date.profit_drift is not none and r.to_date.profit_drift >= -5 else ('loss' if r.to_date.profit_drift is not none else '') }}">
+          {{ fmt(r.to_date.profit_drift, 1) ~ '%' if r.to_date.profit_drift is not none else '—' }}
+        </td>
+
+        {# ── WHOLE PROJECT: frozen baseline vs lifetime ── #}
+        <td class="num" style="white-space:nowrap">
+          {%- if w.p_workers %}{{ w.p_workers }} / {% endif %}{{ w.f_workers }}</td>
+        <td class="num" style="white-space:nowrap">
+          {%- if w.has_plan %}{{ fmt(w.p_hrs, 0) }} / {% endif %}{{ fmt(w.f_hrs, 0) }}</td>
+        {% if w.has_plan %}
+        <td class="num">{{ fmt(w.p_total) }}</td>
+        <td class="num">{{ fmt(w.f_total) }}</td>
+        <td class="num {{ w.css }}">{{ fmt(w.d_total) }}</td>
+        <td class="num {{ w.css }}">{{ fmt(w.d_pct, 1) }}%</td>
+        <td class="{{ w.css }}" style="font-weight:600;white-space:nowrap">{{ t('bp_budget_' ~ w.status) }}</td>
         {% else %}
-        <td class="num">&mdash;</td><td class="num">{{ fmt(row.p_hrs, 0) if row.p_hrs else '—' }}</td>
-        <td class="num">&mdash;</td><td class="num">&mdash;</td><td class="num">&mdash;</td>
-        {% endif %}
-        <td class="num">{{ row.f_workers }}</td><td class="num">{{ fmt(row.f_hrs, 0) }}</td>
-        <td class="num">{{ fmt(row.f_cost) }}</td><td class="num">{{ fmt(row.f_out) }}</td><td class="num">{{ fmt(row.f_total) }}</td>
-        {% if row.has_plan %}
-        <td class="num">{{ fmt(row.d_hrs, 0) }}</td><td class="num">{{ fmt(row.d_cost) }}</td>
-        <td class="num">{{ fmt(row.d_total) }}</td><td class="num">{{ fmt(row.d_pct, 1) }}%</td>
-        <td class="{{ row.b_class }}" style="font-weight:600">{{ row.b_status }}</td>
-        {% else %}
+        <td class="num">&mdash;</td>
+        <td class="num">{{ fmt(w.f_total) }}</td>
         <td class="num">&mdash;</td><td class="num">&mdash;</td>
-        <td class="num">&mdash;</td><td class="num">&mdash;</td>
-        <td style="font-weight:600;color:var(--text-light)">{{ row.b_status }} <a href="/pricing" style="font-size:11px">&rarr;</a></td>
+        <td style="font-weight:600;color:var(--text-light);white-space:nowrap">{{ t('bp_budget_noplan') }}
+          <a href="/projects/{{ r.id }}" style="font-size:11px" title="{{ t('pp_title') }}">&rarr;</a></td>
         {% endif %}
+
+        <td>{{ headline_badge(r.status.headline) }}</td>
       </tr>
       {% endfor %}
       <tr style="font-weight:700;background:var(--accent-bg)" id="bTotalRow">
-        <td>JAMI</td>
-        <td class="num"></td><td class="num">{{ fmt(totals.p_hrs, 0) }}</td><td class="num">{{ fmt(totals.p_cost) }}</td>
-        <td class="num">{{ fmt(totals.p_out) }}</td><td class="num">{{ fmt(totals.p_total) }}</td>
-        <td class="num"></td><td class="num">{{ fmt(totals.f_hrs, 0) }}</td><td class="num">{{ fmt(totals.f_cost) }}</td>
-        <td class="num">{{ fmt(totals.f_out) }}</td><td class="num">{{ fmt(totals.f_total) }}</td>
-        <td class="num"></td>
-        <td class="num"></td>
-        <td class="num {{ total_margin_class }}">{{ fmt(t_d_total) }}</td>
-        <td class="num {{ total_margin_class }}">{{ fmt(t_d_pct, 1) }}%</td>
+        <td>{{ t('th_total') }}</td>
+        <td></td><td></td>
+        <td class="num">{{ fmt(totals.plan_income) }}</td>
+        <td class="num">{{ fmt(totals.fact_income) }}</td>
+        <td class="num">{{ fmt(totals.fact_profit) }}</td>
+        <td></td>
+        <td></td>
+        <td class="num">{{ fmt(whole_totals.f_hrs, 0) }}</td>
+        <td class="num">{{ fmt(whole_totals.p_total) }}</td>
+        <td class="num">{{ fmt(whole_totals.f_total) }}</td>
+        <td class="num {{ whole_d_css }}">{{ fmt(whole_d_total) }}</td>
+        <td class="num {{ whole_d_css }}">{{ fmt(whole_d_pct, 1) }}%</td>
+        <td></td>
         <td></td>
       </tr>
     </tbody>
   </table>
   <div id="bCount" style="margin-top:10px;font-size:12px;color:var(--text-light)"></div>
+  <p style="margin-top:6px;font-size:12px;color:var(--text-light)">{{ t('bp_note') }}</p>
+  {% else %}
+  <div class="empty-state" style="padding:40px">{{ t('plan_empty') }}</div>
+  {% endif %}
 </div>
+
 <script>
 var _sd = {};
 function sortT(tid, col) {
   var tb = document.getElementById(tid).querySelector('tbody');
-  var rs = Array.from(tb.querySelectorAll('tr[data-pl]'));
+  var rs = Array.from(tb.querySelectorAll('tr[data-st]'));
   if (!rs.length) return;
   var d = _sd[tid+'_'+col] === 'asc' ? 'desc' : 'asc';
   _sd[tid+'_'+col] = d;
@@ -97,16 +165,20 @@ function sortT(tid, col) {
 }
 function filterB() {
   var q = document.getElementById('bSearch').value.toLowerCase();
+  var st = document.getElementById('bFSt').value;
   var pl = document.getElementById('bFPL').value;
-  var rs = document.querySelectorAll('#bBody tr[data-pl]');
+  var rs = document.querySelectorAll('#bBody tr[data-st]');
   var n = 0;
   rs.forEach(function(r) {
-    var ok = (!q || r.textContent.toLowerCase().includes(q)) && (!pl || r.dataset.pl === pl);
+    var ok = (!q || r.textContent.toLowerCase().includes(q))
+          && (!st || r.dataset.st === st)
+          && (!pl || r.dataset.pl === pl);
     r.style.display = ok ? '' : 'none';
     if (ok) n++;
   });
-  document.getElementById('bCount').textContent = n + ' / ' + rs.length;
+  var el = document.getElementById('bCount');
+  if (el) el.textContent = n + ' / ' + rs.length;
 }
-filterB();
+if (document.getElementById('bBody')) filterB();
 </script>
 {% endblock %}

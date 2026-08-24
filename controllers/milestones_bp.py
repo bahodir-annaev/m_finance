@@ -1,7 +1,7 @@
 """Milestones (bosqichlar): project detail page, /plan overview, milestone API."""
 import re
 
-from flask import Blueprint, request, jsonify, abort
+from flask import Blueprint, request, jsonify, abort, redirect
 from flask_login import login_required, current_user
 from auth import require_role
 from utils import render_page
@@ -9,8 +9,11 @@ from models import (
     get_db, get_work_types, get_project_milestones, get_project_monthly_rollup,
     get_unassigned_actuals, suggest_phase_for_period, add_milestone,
     delete_milestone, set_milestone_status, assign_hours_to_milestone,
-    get_plan_overview, set_milestone_staff, get_production_staff_rates,
+    set_milestone_staff, get_production_staff_rates,
     get_record, update_record,
+    price_project_plan, save_project_risk, apply_suggested_prices,
+    freeze_project_plan, get_plan_baseline, generate_milestone_schedule,
+    STANDARD_SCHEDULE,
 )
 
 bp = Blueprint('milestones', __name__)
@@ -25,12 +28,9 @@ def _can_edit():
 @bp.route('/plan')
 @login_required
 def plan_page():
-    ov = get_plan_overview()
-    return render_page('plan', 'plan.html',
-        rows=ov['rows'],
-        counts=ov['counts'],
-        totals=ov['totals'],
-    )
+    """The periodic plan merged into /budget, which now shows both the
+    time-phased and whole-project lenses. Kept so old bookmarks resolve."""
+    return redirect('/budget', code=301)
 
 
 @bp.route('/projects/<int:project_id>')
@@ -48,6 +48,10 @@ def project_detail(project_id):
     for hp in unassigned['hour_periods']:
         hp['suggested'] = suggest_phase_for_period(project_id, hp['period'], milestones)
     total_ev = sum(m['earned_value'] for m in milestones)
+    # Plan & Price: milestones are queried once and reused by the pricer
+    pricing = price_project_plan(project_id, milestones=milestones)
+    # Row-level price figures keyed by milestone id, for the milestones table
+    price_by_id = {r['id']: r for r in pricing['rows']} if pricing else {}
 
     # page='projects' keeps the Proektlar nav item highlighted on the detail view
     return render_page('projects', 'project_detail.html',
@@ -59,6 +63,9 @@ def project_detail(project_id):
         total_ev=total_ev,
         can_edit=_can_edit(),
         staff_rates=get_production_staff_rates(),
+        pricing=pricing,
+        price_by_id=price_by_id,
+        baseline=get_plan_baseline(project_id),
     )
 
 
@@ -157,6 +164,72 @@ def api_milestone_status(mid):
     if set_milestone_status(mid, request.form.get('status') or ''):
         return jsonify({'status': 'ok'})
     return jsonify({'error': 'not found'}), 404
+
+
+# ========== Plan & Price ==========
+
+def _project_exists(project_id):
+    conn = get_db()
+    row = conn.execute("SELECT 1 FROM projects WHERE id=?", (project_id,)).fetchone()
+    conn.close()
+    return bool(row)
+
+
+@bp.route('/api/projects/<int:project_id>/risk', methods=['POST'])
+@require_role('manager', 'admin')
+def api_save_risk(project_id):
+    """Persist the four risk inputs and return the repriced plan."""
+    f = request.form
+    saved = save_project_risk(
+        project_id,
+        deadline_months=f.get('deadline_months') or f.get('deadline'),
+        client_type=f.get('client_type') or 'new',
+        complexity=f.get('complexity') or 'medium',
+        currency=f.get('currency') or 'UZS',
+    )
+    if saved is None:
+        return jsonify({'error': 'not found'}), 404
+    return jsonify({'status': 'ok', 'risk': saved,
+                    'plan': price_project_plan(project_id)})
+
+
+@bp.route('/api/projects/<int:project_id>/plan/freeze', methods=['POST'])
+@require_role('manager', 'admin')
+def api_freeze_plan(project_id):
+    """Copy the live milestone plan into projects.planned_* as the baseline."""
+    result, err = freeze_project_plan(project_id)
+    if err == 'notfound':
+        return jsonify({'error': 'not found'}), 404
+    if err:
+        return jsonify({'error': err}), 400
+    return jsonify({'status': 'ok', **result})
+
+
+@bp.route('/api/projects/<int:project_id>/milestones/apply-prices', methods=['POST'])
+@require_role('manager', 'admin')
+def api_apply_prices(project_id):
+    """Set planned_revenue from the pricing ladder; overridden rows are kept
+    unless force=1."""
+    changed = apply_suggested_prices(
+        project_id, force=request.form.get('force') in ('1', 'true', 'on'))
+    if changed is None:
+        return jsonify({'error': 'not found'}), 404
+    return jsonify({'status': 'ok', 'changed': changed})
+
+
+@bp.route('/api/projects/<int:project_id>/milestones/schedule', methods=['POST'])
+@require_role('manager', 'admin')
+def api_create_schedule(project_id):
+    """Create the standard six-stage skeleton — names, work types and dates
+    only. Hours, cost and price are filled in per milestone afterwards."""
+    if not _project_exists(project_id):
+        return jsonify({'error': 'not found'}), 404
+    created, err = generate_milestone_schedule(
+        project_id, [dict(r) for r in STANDARD_SCHEDULE], totals=None,
+        overwrite=request.form.get('overwrite') in ('1', 'true', 'on'))
+    if err:
+        return jsonify({'error': err}), 400
+    return jsonify({'status': 'ok', 'created': created})
 
 
 @bp.route('/api/milestones/assign-hours', methods=['POST'])

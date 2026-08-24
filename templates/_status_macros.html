@@ -1,0 +1,19 @@
+{# Shared on/edge/off traffic-light badges.
+   Used by the portfolio page (budget.html) and the project detail page —
+   keep one copy so the two never drift apart visually.
+   Import "with context" so headline_badge can reach the injected t(). #}
+{% macro light_badge(st, label) -%}
+  {%- if st == 'on' -%}<span class="badge" style="background:#F0FDF4;color:var(--done);border:1px solid #BBF7D0">{{ label }}</span>
+  {%- elif st == 'edge' -%}<span class="badge" style="background:#FFFBEB;color:#92400E;border:1px solid #FDE68A">{{ label }}</span>
+  {%- elif st == 'off' -%}<span class="badge" style="background:#FEF2F2;color:#DC2626;border:1px solid #FECACA">{{ label }}</span>
+  {%- else -%}<span class="badge" style="background:var(--bg);color:var(--text-light);border:1px solid var(--border)">{{ label }}</span>
+  {%- endif -%}
+{%- endmacro %}
+
+{% macro headline_badge(st) -%}
+  {%- if st == 'on' -%}{{ light_badge('on', t('plan_status_on')) }}
+  {%- elif st == 'edge' -%}{{ light_badge('edge', t('plan_status_edge')) }}
+  {%- elif st == 'off' -%}{{ light_badge('off', t('plan_status_off')) }}
+  {%- else -%}{{ light_badge('none', t('plan_status_none')) }}
+  {%- endif -%}
+{%- endmacro %}

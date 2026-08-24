@@ -361,6 +361,8 @@ def init_db():
         planned_hours REAL DEFAULT 0, planned_cost REAL DEFAULT 0,
         planned_revenue REAL DEFAULT 0, planned_outsourcing REAL DEFAULT 0,
         planned_material REAL DEFAULT 0, plan_frozen_date TEXT,
+        risk_deadline_months INTEGER, risk_client_type TEXT,
+        risk_complexity TEXT, risk_currency TEXT,
         updated_at TEXT
     )''')
     c.execute('''CREATE TABLE IF NOT EXISTS project_hours (
@@ -741,6 +743,13 @@ def init_db():
         # NULL, so settled == paid and every aggregation behaves exactly as before.
         "ALTER TABLE transactions ADD COLUMN parent_tx_id INTEGER REFERENCES transactions(id)",
         "CREATE INDEX IF NOT EXISTS idx_tx_parent ON transactions(parent_tx_id)",
+        # v6.3 — unified Plan & Price: the four risk inputs are persisted on the
+        # project so a quote round-trips. Previously only the derived
+        # risk_coefficient survived and risk_score was never written at all.
+        "ALTER TABLE projects ADD COLUMN risk_deadline_months INTEGER",
+        "ALTER TABLE projects ADD COLUMN risk_client_type TEXT",
+        "ALTER TABLE projects ADD COLUMN risk_complexity TEXT",
+        "ALTER TABLE projects ADD COLUMN risk_currency TEXT",
     ]
     for sql in migrations:
         try:

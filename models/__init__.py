@@ -20,7 +20,6 @@ from .projects import (
     get_staff_billable_hours_for_project, calculate_fx_gain_loss,
     get_earned_revenue, calculate_project_cost,
 )
-from .pricing import calculate_risk_score, pricing_estimate
 from .milestones import (
     get_work_types, get_project_milestones, get_milestone_actuals,
     get_project_monthly_actuals, get_project_monthly_rollup,
@@ -28,7 +27,14 @@ from .milestones import (
     add_milestone, delete_milestone, set_milestone_status,
     assign_hours_to_milestone, get_plan_overview,
     get_projects_on_course_summary, generate_milestones_from_pricing,
+    generate_milestone_schedule, rollup_milestone_plan, STANDARD_SCHEDULE,
     set_milestone_staff, get_milestone_staff,
+)
+from .pricing import (
+    calculate_risk_score, pricing_estimate, price_from_cost, get_target_margin,
+    price_project_plan, get_project_risk, save_project_risk,
+    apply_suggested_prices, freeze_project_plan, get_plan_baseline,
+    quote_schedule, save_quote_to_project,
 )
 from .base import INCOME_TX_TYPES, INCOME_TX_SQL
 from .transactions import (
@@ -56,13 +62,17 @@ __all__ = [
     'get_production_staff_rates',
     'get_staff_billable_hours_for_project', 'calculate_fx_gain_loss',
     'get_earned_revenue', 'calculate_project_cost',
-    'calculate_risk_score', 'pricing_estimate',
+    'calculate_risk_score', 'pricing_estimate', 'price_from_cost', 'get_target_margin',
+    'price_project_plan', 'get_project_risk', 'save_project_risk',
+    'apply_suggested_prices', 'freeze_project_plan', 'get_plan_baseline',
+    'quote_schedule', 'save_quote_to_project',
     'get_work_types', 'get_project_milestones', 'get_milestone_actuals',
     'get_project_monthly_actuals', 'get_project_monthly_rollup',
     'get_unassigned_actuals', 'suggest_phase_for_period', 'allocate_plan_to_months',
     'add_milestone', 'delete_milestone', 'set_milestone_status',
     'assign_hours_to_milestone', 'get_plan_overview',
     'get_projects_on_course_summary', 'generate_milestones_from_pricing',
+    'generate_milestone_schedule', 'rollup_milestone_plan', 'STANDARD_SCHEDULE',
     'set_milestone_staff', 'get_milestone_staff',
     'INCOME_TX_TYPES', 'INCOME_TX_SQL',
     'get_cash_flow_by_month', 'get_payment_summary', 'update_transaction',

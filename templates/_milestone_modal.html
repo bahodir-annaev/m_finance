@@ -44,6 +44,11 @@
           <div class="field">
             <label>{{ t('ms_field_income') }}</label>
             <input type="number" step="any" min="0" name="planned_revenue" id="ms_planned_revenue">
+            <div style="display:flex;gap:8px;align-items:center;margin-top:4px">
+              <span id="msSuggestPrice" style="font-size:11px;color:var(--text-light)"></span>
+              <button type="button" class="btn btn-outline btn-sm" style="padding:1px 8px;font-size:11px"
+                      onclick="msUseSuggested()">&#8592;</button>
+            </div>
           </div>
           <div class="field">
             <label>{{ t('ms_computed_cost') }}</label>
@@ -51,11 +56,13 @@
           </div>
           <div class="field">
             <label>{{ t('ms_field_outsourcing') }}</label>
-            <input type="number" step="any" min="0" name="planned_outsourcing" id="ms_planned_outsourcing">
+            <input type="number" step="any" min="0" name="planned_outsourcing" id="ms_planned_outsourcing"
+                   oninput="msUpdateSuggestion()">
           </div>
           <div class="field">
             <label>{{ t('ms_field_material') }}</label>
-            <input type="number" step="any" min="0" name="planned_material" id="ms_planned_material">
+            <input type="number" step="any" min="0" name="planned_material" id="ms_planned_material"
+                   oninput="msUpdateSuggestion()">
           </div>
           <div class="field">
             <label>{{ t('ms_computed_hours') }}</label>
@@ -109,6 +116,42 @@ var MS_STAFF = [
 var MS_RATES = {};
 MS_STAFF.forEach(function (s) { MS_RATES[s.id] = s; });
 var MS_BILLING_HINT = {{ t('ms_computed_billing')|tojson }};
+// The one price ladder, mirroring models/pricing.py price_from_cost() so the
+// modal's suggestion cannot drift from the card's or the table's.
+var MS_RISK_COEFF = {{ pricing.risk_coeff if pricing else 1.15 }};
+var MS_TARGET_MARGIN = {{ pricing.target_margin if pricing else 0.5 }};
+var MS_SUGGEST_LABEL = {{ t('pp_th_suggested')|tojson }};
+
+function msSuggestedPrice(laborCost, outsourcing, material) {
+  var minimum = laborCost * MS_RISK_COEFF + (outsourcing || 0) + (material || 0);
+  return MS_TARGET_MARGIN < 1 ? minimum / (1 - MS_TARGET_MARGIN) : minimum * 2;
+}
+
+function msCurrentLaborCost() {
+  var tc = 0;
+  document.querySelectorAll('#msStaffRows tr').forEach(function (tr) {
+    var sid = tr.querySelector('[name=ms_staff_id]').value;
+    var h = parseFloat(tr.querySelector('[name=ms_staff_hours]').value) || 0;
+    tc += h * ((MS_RATES[sid] || {cost: 0}).cost);
+  });
+  // Rows-less milestones (legacy / generated) keep their stored plan cost
+  if (!document.querySelectorAll('#msStaffRows tr').length) {
+    tc = parseFloat(String(document.getElementById('ms_calc_cost').value).replace(/[^\d.-]/g, '')) || 0;
+  }
+  return tc;
+}
+
+function msUpdateSuggestion() {
+  var out = parseFloat(document.getElementById('ms_planned_outsourcing').value) || 0;
+  var mat = parseFloat(document.getElementById('ms_planned_material').value) || 0;
+  var sug = msSuggestedPrice(msCurrentLaborCost(), out, mat);
+  document.getElementById('msSuggestPrice').textContent = MS_SUGGEST_LABEL + ': ' + msFmt(sug);
+  return sug;
+}
+
+function msUseSuggested() {
+  document.getElementById('ms_planned_revenue').value = Math.round(msUpdateSuggestion());
+}
 
 function msFmt(n, dec) {
   return (n || 0).toLocaleString('ru-RU', {maximumFractionDigits: dec || 0});
@@ -147,13 +190,17 @@ function recalcMs() {
   // pricing-generated milestones have scalars but no employee rows).
   if (!rows.length) {
     document.getElementById('msBillingHint').textContent = '';
+    msUpdateSuggestion();
     return;
   }
   document.getElementById('ms_calc_hours').value = msFmt(th, 1);
   document.getElementById('ms_calc_cost').value = msFmt(tc);
   document.getElementById('msBillingHint').textContent = MS_BILLING_HINT.replace('{0}', msFmt(tb));
+  // Suggest from the pricing ladder (risk + target margin), not the raw billing
+  // markup — one price rule across the modal, the table and the card.
+  var sug = msUpdateSuggestion();
   var rev = document.getElementById('ms_planned_revenue');
-  if (!parseFloat(rev.value)) rev.value = Math.round(tb);
+  if (!parseFloat(rev.value)) rev.value = Math.round(sug);
 }
 
 function openMsModalNew() {
@@ -172,6 +219,7 @@ function openMsModalNew() {
   document.getElementById('ms_sort_order').value = 100;
   document.getElementById('ms_work_type').value = '';
   document.getElementById('ms_status').value = 'planned';
+  msUpdateSuggestion();
   document.getElementById('msDeleteBtn').style.display = 'none';
   document.getElementById('msModalOverlay').style.display = 'flex';
 }

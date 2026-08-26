@@ -443,8 +443,9 @@ def post_fx_revaluation(as_of=None, memo=None):
 
 # ========== Period close ==========
 
-def close_period(period, status='hard_closed', post_closing=True, snapshot=True):
-    """Close a fiscal period: snapshot rates, close the Т-accounts, lock it.
+def close_period(period, status='hard_closed', post_closing=True, snapshot=True,
+                 post_depreciation=True):
+    """Close a fiscal period: depreciate, snapshot rates, close the Т-accounts, lock it.
 
     The closing entry moves every income and expense balance into 9910, so the
     period's result stands on one account and the next period starts clean.
@@ -454,11 +455,21 @@ def close_period(period, status='hard_closed', post_closing=True, snapshot=True)
     """
     from .staff import snapshot_period_allocations, snapshot_hours_rates
     from .base import get_period_status, ensure_fiscal_period
+    from .depreciation import post_period_depreciation
 
     if get_period_status(period) in ('soft_closed', 'hard_closed'):
         return None, 'already_closed'
 
     start, end = period_bounds(period)
+
+    # Depreciation must land BEFORE the P&L is read, and be committed first:
+    # `pnl` below is materialised once and never re-read, and get_pnl() opens
+    # its own connection. A charge posted after this point would never reach
+    # 9910 and would strand an expense balance inside a closed period.
+    dep_entry_id, dep_total = None, 0.0
+    if post_depreciation:
+        dep_entry_id, dep_total = post_period_depreciation(period)
+
     pnl = get_pnl(start, end)
 
     written = 0
@@ -508,12 +519,21 @@ def close_period(period, status='hard_closed', post_closing=True, snapshot=True)
         conn.close()
 
     return {'period': period, 'status': status, 'entry_id': entry_id,
-            'net_profit': pnl['net_profit'], 'snapshots': written}, None
+            'net_profit': pnl['net_profit'], 'snapshots': written,
+            'depreciation_entry_id': dep_entry_id,
+            'depreciation_total': dep_total}, None
 
 
 def reopen_period(period):
-    """Reopen a period and reverse its closing entry, if one was posted."""
+    """Reopen a period, reversing both its closing and depreciation entries.
+
+    Depreciation is reversed as well as the close because the two are created
+    together: leaving the charge in place would make the idempotency guard skip
+    it on re-close, so a register corrected during the reopen would be silently
+    ignored and the books would keep the stale figure.
+    """
     from .ledger import reverse_entry
+    from .depreciation import depreciation_posted_entry, DEPRECIATION_STORNO_MEMO
 
     conn = get_db()
     try:
@@ -523,13 +543,21 @@ def reopen_period(period):
             "   AND id NOT IN (SELECT reversal_of_id FROM journal_entries"
             "                   WHERE reversal_of_id IS NOT NULL)"
             " ORDER BY id DESC LIMIT 1", (period,)).fetchone()
+        # Read before posting any reversal, so neither lookup can see the other's
+        # storno.
+        dep_id = depreciation_posted_entry(period, conn)
         conn.execute("UPDATE fiscal_periods SET status='open', closed_at=NULL"
                      " WHERE code=?", (period,))
         if row:
             reverse_entry(conn, row['id'], memo=f'Davr qayta ochildi {period}',
                           allow_closed=True)
+        if dep_id:
+            reverse_entry(conn, dep_id,
+                          memo=f'{DEPRECIATION_STORNO_MEMO} {period}',
+                          allow_closed=True)
         _write_audit(conn, 'reopen', 'fiscal_periods', None,
-                     context=f'period {period} reopened')
+                     context=f'period {period} reopened'
+                             + (f'; depreciation #{dep_id} reversed' if dep_id else ''))
         conn.commit()
         return True
     finally:

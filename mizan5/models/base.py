@@ -754,6 +754,12 @@ ACCOUNT_SEED = [
      'T', None, 'indirect', 0, 171),
     ('9430', 'Прочие операционные расходы', 'Boshqa operatsion xarajatlar',
      'T', None, 'indirect', 0, 172),
+    # Depreciation gets its own child of 9420 and is deliberately 'excluded',
+    # not 'indirect'. The equipment register already charges these assets in
+    # calculate_hourly_rate(); if this account joined the overhead pool the
+    # ledger would charge them a second time and every rate would inflate.
+    ('9420.1', 'Амортизация основных средств', 'Asosiy vositalar amortizatsiyasi',
+     'T', None, 'excluded', 0, 1715),
     ('9530', 'Доходы в виде процентов', 'Foiz daromadlari', 'T', None, None, 0, 180),
     ('9540', 'Доходы в виде курсовых разниц', 'Kurs farqi daromadi',
      'T', None, 'excluded', 0, 181),
@@ -798,6 +804,7 @@ ACCOUNT_MAP_SEED = {
     'loan_issued': '5820',
     'equipment_asset': '0150',
     'equipment_depreciation': '0200',
+    'depreciation_expense': '9420.1',
     'opening_offset': '0000',
 }
 
@@ -937,6 +944,13 @@ def _seed_accounts(c):
         if row:
             c.execute("INSERT OR IGNORE INTO account_map (purpose, account_id) VALUES (?,?)",
                       (purpose, row[0]))
+    # The seed above is INSERT OR IGNORE, so an install where someone created
+    # 9420.1 by hand could have it sitting in the overhead pool. That would make
+    # every depreciated asset count twice — once from the equipment register and
+    # once from the pool. Correct it, but only from 'indirect': a deliberate NULL
+    # is left alone.
+    c.execute("UPDATE accounts SET cost_pool='excluded'"
+              " WHERE code=? AND cost_pool='indirect'", ('9420.1',))
 
 
 def _seed_lookups(c):

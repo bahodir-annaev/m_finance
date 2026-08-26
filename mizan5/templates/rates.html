@@ -161,17 +161,22 @@
 
   <div class="card">
     <div class="card-head"><h3>{{ t('nav_equipment') }}</h3>
-      <a class="btn btn-sm" href="/staff/equipment">{{ t('view') }}</a></div>
+      <div class="btn-row">
+        <a class="btn btn-sm" href="/periods">{{ t('depreciation') }}</a>
+        <a class="btn btn-sm" href="/staff/equipment">{{ t('view') }}</a></div></div>
     <div class="card-body tight"><table>
       <tbody>
         <tr><td>{{ t('monthly_cost') }} ({{ t('nav_equipment') }})</td>
           <td class="num">{{ fmt(depreciation.register_monthly) }}</td></tr>
         <tr><td class="muted">0150 {{ t('assets') }}</td>
           <td class="num muted">{{ fmt(depreciation.ledger_asset) }}</td></tr>
-        <tr><td class="muted">0200 {{ t('kind_KA') }}</td>
+        <tr><td class="muted">0200 {{ t('accumulated_depreciation') }}</td>
           <td class="num muted">{{ fmt(depreciation.ledger_accumulated) }}</td></tr>
       </tbody>
     </table></div>
+    <div class="card-body"><p class="hint">
+      {{ t('rate_basis') }}: {{ t('nav_equipment') }} —
+      {{ t('depreciation') }} 9420.1 / 0200 ({{ t('pool_excluded') }})</p></div>
   </div>
 </div>
 {% endblock %}

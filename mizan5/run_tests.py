@@ -16,6 +16,7 @@ SUITES = [
     ('test_rates.py', 'man-hour cost engine — v4 parity, benchmarks'),
     ('test_pricing.py', 'pricing ladder, milestones, budget'),
     ('test_reports.py', 'reports, FX, period close'),
+    ('test_depreciation.py', 'depreciation schedule, posting, no double count'),
     ('test_i18n.py', 'translation completeness'),
     ('test_app.py', 'end-to-end HTTP — every page and flow'),
     ('test_migration.py', 'v4 migration + reconciliation'),

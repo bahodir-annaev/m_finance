@@ -26,6 +26,11 @@ from .documents import (
     INVOICE_TYPES, CASH_TYPES,
 )
 from .posting import build_entry_lines, cash_account_purpose
+from .depreciation import (
+    depreciation_schedule, depreciation_preview, depreciation_posted_entry,
+    post_period_depreciation, reverse_period_depreciation,
+    DEPRECIATION_MEMO_PREFIX,
+)
 from .staff import (
     get_available_hours, available_hours_value, get_current_salary, salary_at,
     employer_burden, latest_period, billable_hours_by_staff,

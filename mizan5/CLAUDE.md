@@ -30,12 +30,13 @@ Database: `mizan5.db` (override with `MIZAN5_DB`).
 ## Tests
 
 ```bash
-python run_tests.py          # everything — 398 assertions
+python run_tests.py          # everything — 483 assertions
 python test_ledger.py        # balance enforcement, periods, reversal
 python test_documents.py     # posting rules, allocation, void, advances
 python test_rates.py         # man-hour cost engine + GOLDEN v4 PARITY
 python test_pricing.py       # price ladder linearity, milestones, budget
 python test_reports.py       # P&L, balance sheet, cash flow, VAT, close
+python test_depreciation.py  # schedule, posting, and the no-double-count rule
 python test_i18n.py          # translation completeness
 python test_app.py           # every page renders + full HTTP flows
 python test_migration.py     # replays the real v4 DB, reconciles cash and AR
@@ -73,6 +74,7 @@ models/
   milestones.py   project_phases, actuals, schedule generation
   projects.py     profitability, budget plan-vs-fact
   reports.py      P&L, balance sheet, cash flow, aging, VAT, FX, period close
+  depreciation.py monthly depreciation of the equipment register
   import_v4.py    one-shot migration from the v4 database
 controllers/      15 blueprints, route handlers only — no SQL
 templates/        base.html + _macros.html + one per page
@@ -106,6 +108,12 @@ A posted document is never edited — void it and enter a replacement.
 | loan | cash or 5820 | 6820/7820 or cash |
 | opening | each balance vs **0000** — a correct set leaves 0000 at zero | |
 | manual | user lines, balance validated | |
+
+Two routines post without a document, following the same pattern: FX revaluation
+(`reports.post_fx_revaluation`) and monthly depreciation
+(`depreciation.post_period_depreciation`, **Dr 9420.1 / Cr 0200**). Both leave
+`journal_entries.document_id` NULL — the `documents.doc_type` CHECK has no value
+for them and adding one would need a full SQLite table rebuild.
 
 Posting rules reference accounts by **purpose** via `account_map`, never by hardcoded
 code, so re-pointing a purpose is a settings change.
@@ -143,6 +151,36 @@ Three v5 changes, each checked against A/E practice (AIA/PSMJ, FAR Part 31 / AAS
 
 `cost_pool` on an account is what keeps salary and tax out of the overhead pool —
 the v5 equivalent of v4's `INDIRECT_POOL_EXCLUDED_TX_TYPES`.
+
+### Depreciation and the double-count rule
+
+`models/depreciation.py` posts the equipment register monthly (**Dr 9420.1 /
+Cr 0200**) so the P&L shows depreciation and the balance sheet shows accumulated
+depreciation. It runs automatically inside `close_period()` — **before**
+`get_pnl()` is read, or the charge would never reach 9910 — and on demand from
+the card on `/periods`.
+
+**9420.1 is flagged `cost_pool='excluded'`, and that is load-bearing.** The
+equipment register already charges these assets to staff rates through
+`personal_eq` / `general_eq`. If the expense account were `indirect`, the pool
+would pick up the debit while the 0200 credit would not offset it and every
+asset would count twice — measured at +26% on one employee's rate before the
+split. `post_period_depreciation()` refuses to post if the flag is ever changed,
+and `test_depreciation.py` pins both the effect and the guard.
+
+Two predicates deliberately differ and must not be unified: `staff.NOT_EXPIRED`
+asks "is this asset alive **today**" (right for the rate engine, and what the v4
+parity test pins), while `depreciation._month_index` asks "was it alive **in
+that period**" (right for a posting).
+
+Idempotency is the memo prefix `Amortizatsiya <period>`, the same mechanism
+`reopen_period()` uses to find a closing entry. Reopening a period reverses the
+depreciation entry too, so a re-close recomputes from a corrected register.
+
+Not covered: **asset disposal** (`is_active=0` mid-life stops the charge and
+leaves accumulated < cost), and **capitalization** — nothing posts to 0150 yet,
+so equipment bought through a purchase invoice must have its line pointed at
+0150 by hand or it is expensed to 9420 and double-counted against the register.
 
 Rates are frozen per period into `period_allocations`; closed periods cost from the
 snapshot so history never moves when today's salaries change.

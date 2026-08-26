@@ -103,6 +103,7 @@ ERROR_KEYS = [
     'doc_not_found', 'doc_already_posted', 'doc_not_posted',
     'doc_posted_readonly', 'doc_number_taken', 'alloc_exceeds_payment',
     'alloc_exceeds_invoice', 'alloc_invoice_not_posted',
+    'depreciation_account_in_pool',
 ]
 for key in ERROR_KEYS:
     ok = all(key in TRANSLATIONS[lang] for lang in ('uz', 'en', 'ru'))

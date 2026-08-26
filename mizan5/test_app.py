@@ -57,6 +57,18 @@ conn.execute("INSERT INTO project_hours (project_id, staff_id, hours, period)"
 LOAN = conn.execute(
     "INSERT INTO loans (loan_type, counterparty_id, total_amount, issue_date)"
     " VALUES ('olgan', ?, 50000000, '2026-01-10')", (VENDOR,)).lastrowid
+# Equipment so the depreciation card on /periods has real rows to render, and
+# one dateless asset so the "skipped" block renders too.
+conn.execute(
+    "INSERT INTO equipment (name, kind, staff_id, quantity, price,"
+    " lifespan_months, purchase_date) VALUES ('Laptop','personal',?,1,15000000,36,"
+    " '2026-01-15')", (SID,))
+conn.execute(
+    "INSERT INTO equipment (name, kind, quantity, price, lifespan_months,"
+    " purchase_date) VALUES ('Server','general',1,30000000,60,'2026-01-10')")
+conn.execute(
+    "INSERT INTO equipment (name, kind, quantity, price, lifespan_months)"
+    " VALUES ('Monitor','general',1,4000000,24)")
 conn.commit()
 conn.close()
 
@@ -240,6 +252,26 @@ conn.close()
 check('the previous salary row was closed', closed == 1, str(closed))
 
 print('\n=== Period close through HTTP ===')
+print('\n=== Depreciation through HTTP ===')
+r = client.get('/periods?dep_period=2026-05')
+check('the depreciation card renders its schedule',
+      r.status_code == 200 and 'Laptop'.encode() in r.data)
+check('a dateless asset is reported as skipped, not dropped',
+      'Monitor'.encode() in r.data)
+r = client.post('/periods/depreciate', data={'period': '2026-05'},
+                follow_redirects=True)
+check('depreciation posts through the form', r.status_code == 200)
+from models.ledger import account_balance as _bal                     # noqa: E402
+check('accumulated depreciation is now on the books', _bal('0200') > 0,
+      str(_bal('0200')))
+check('the expense landed on 9420.1, not 9420',
+      _bal('9420.1') > 0 and abs(_bal('9420.1') - _bal('0200')) < 1,
+      f"9420.1={_bal('9420.1')} 0200={_bal('0200')}")
+r = client.post('/periods/depreciate', data={'period': '2026-05'},
+                follow_redirects=True)
+check('posting the same period twice is refused politely',
+      b'alert-info' in r.data or b'alert-success' in r.data)
+
 r = client.post('/periods/close', data={'period': '2026-06', 'status': 'hard_closed'},
                 follow_redirects=True)
 check('period closes', r.status_code == 200)

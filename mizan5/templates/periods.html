@@ -26,6 +26,98 @@
   </table></div>
 </div>
 
+{# Depreciation — the register charged monthly to 9420.1 / 0200. Closing a
+   period does this automatically; the button is for posting a month early or
+   re-posting after a reopen. #}
+{% set skip_labels = {
+     'no_purchase_date': t('skip_no_purchase_date'),
+     'bad_purchase_date': t('skip_bad_purchase_date'),
+     'not_yet_purchased': t('skip_not_yet_purchased'),
+     'fully_depreciated': t('skip_fully_depreciated'),
+     'no_lifespan': t('skip_no_lifespan'),
+     'zero_cost': t('skip_zero_cost')} %}
+<div class="card">
+  <div class="card-head">
+    <h2>{{ t('depreciation') }} — {{ depreciation.period }}</h2>
+    <div class="btn-row">
+      <form method="get" class="btn-row">
+        <select name="dep_period" style="width:auto" onchange="this.form.submit()">
+          {% for p in periods %}
+          <option value="{{ p.code }}" {% if p.code == dep_period %}selected{% endif %}>
+            {{ p.code }}</option>
+          {% endfor %}
+          {% if dep_period not in periods|map(attribute='code')|list %}
+          <option value="{{ dep_period }}" selected>{{ dep_period }}</option>
+          {% endif %}
+        </select>
+      </form>
+      {% if depreciation.already_posted %}
+        <span class="badge badge-posted">{{ t('depreciation_already_posted') }}</span>
+      {% elif depreciation.error %}
+        <span class="badge badge-bad">{{ t(depreciation.error) }}</span>
+      {% elif depreciation.total > 0 %}
+        <form method="post" action="/periods/depreciate"
+              onsubmit="return confirm('{{ t('depreciation_confirm') }}')">
+          <input type="hidden" name="period" value="{{ depreciation.period }}">
+          <button class="btn btn-sm btn-primary">{{ t('depreciation_post') }}</button>
+        </form>
+      {% endif %}
+    </div>
+  </div>
+  <div class="card-body tight"><div class="table-wrap"><table>
+    <thead><tr>
+      <th>{{ t('name') }}</th><th>{{ t('type') }}</th><th>{{ t('staff') }}</th>
+      <th>{{ t('purchase_date') }}</th>
+      <th class="num">{{ t('months_used') }}</th>
+      <th class="num">{{ t('amount') }}</th>
+      <th class="num">{{ t('depreciation') }}</th>
+      <th class="num">{{ t('accumulated_depreciation') }}</th>
+      <th class="num">{{ t('book_value') }}</th>
+    </tr></thead>
+    <tbody>
+      {% for r in depreciation.schedule.rows %}
+      <tr>
+        <td>{{ r.name }}</td>
+        <td><span class="badge badge-draft">{{ t('equipment_' ~ r.kind) }}</span></td>
+        <td class="muted">{{ r.staff_name or '—' }}</td>
+        <td class="nowrap muted">{{ r.purchase_date }}</td>
+        <td class="num muted">{{ r.month_index }} / {{ r.lifespan_months }}</td>
+        <td class="num muted">{{ fmt(r.cost) }}</td>
+        <td class="num"><b>{{ fmt(r.charge) }}</b></td>
+        <td class="num muted">{{ fmt(r.accumulated_after) }}</td>
+        <td class="num">{{ fmt(r.book_value) }}</td>
+      </tr>
+      {% else %}{{ m.empty_row(9, t) }}{% endfor %}
+    </tbody>
+    {% if depreciation.schedule.rows %}
+    <tfoot><tr class="total-row">
+      <td colspan="6">{{ t('total') }} — {{ depreciation.expense_code }} /
+        {{ depreciation.accum_code }}</td>
+      <td class="num">{{ fmt(depreciation.total) }}</td>
+      <td colspan="2"></td>
+    </tr></tfoot>
+    {% endif %}
+  </table></div></div>
+
+  {% if depreciation.schedule.skipped %}
+  <div class="card-body" style="border-top:1px solid var(--line)">
+    <div class="section-title">{{ t('depreciation_skipped') }}</div>
+    <table>
+      <thead><tr><th>{{ t('name') }}</th><th class="num">{{ t('amount') }}</th>
+        <th>{{ t('reason') }}</th></tr></thead>
+      <tbody>
+        {% for r in depreciation.schedule.skipped %}
+        <tr><td>{{ r.name }}</td><td class="num muted">{{ fmt(r.cost) }}</td>
+          <td><span class="badge badge-warn">{{ skip_labels.get(r.reason, r.reason) }}</span></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="hint">{{ t('skip_no_purchase_date') }} — {{ t('nav_equipment') }}:
+      <a href="/staff/equipment">{{ t('edit') }}</a></p>
+  </div>
+  {% endif %}
+</div>
+
 <div class="card">
   <div class="card-head"><h2>{{ t('nav_periods') }}</h2>
     <span class="hint">{{ t('period_close_warning') }}</span></div>

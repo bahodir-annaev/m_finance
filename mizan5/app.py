@@ -11,7 +11,7 @@ from auth import login_manager
 from models.base import init_db
 
 # Local-network prefixes allowed to reach the app.
-_ALLOWED_PREFIXES = ('127.', '::1', '192.168.', '10.', '172.')
+_ALLOWED_PREFIXES = ('127.', '::1', '192.168.', '10.', '172.', '100.')  # 100. = Tailscale CGNAT range
 
 _SECRET_KEY_FILE = os.path.join(os.path.dirname(__file__), '.mizan5_secret_key')
 _ENV_FILE = os.path.join(os.path.dirname(__file__), '.env')
@@ -62,6 +62,7 @@ BLUEPRINT_MODULES = [
     'auth_bp', 'dashboard_bp', 'accounts_bp', 'journal_bp', 'documents_bp',
     'counterparties_bp', 'staff_bp', 'rates_bp', 'projects_bp', 'payroll_bp',
     'reports_bp', 'periods_bp', 'settings_bp', 'api_bp', 'loans_bp',
+    'bank_accounts_bp', 'pricing_bp',
 ]
 
 

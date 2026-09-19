@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block heading %}{{ t('nav_kpi') }}{% endblock %}
+{% block topbar_extra %}{{ kpi.kpi_months }} {{ t('months') }} × {{ fmt(kpi.available_hours, 1) }} {{ t('hours') }}
+  = {{ fmt(kpi.window_hours) }}{% endblock %}
+
+{% block content %}
+<div class="tiles">
+  <div class="tile"><div class="label">{{ t('hours') }}</div>
+    <div class="value">{{ fmt(kpi.total_hours, 0) }}</div>
+    <div class="sub">{{ rows|length }} {{ t('staff_plural') }}</div></div>
+  <div class="tile"><div class="label">{{ t('cost_value') }}</div>
+    <div class="value">{{ fmt(kpi.total_cost_value) }}</div>
+    <div class="sub">{{ t('hours') }} × {{ t('cost_rate') }}</div></div>
+  <div class="tile ok"><div class="label">{{ t('revenue_value') }}</div>
+    <div class="value">{{ fmt(kpi.total_revenue_value) }}</div>
+    <div class="sub">${{ fmt(kpi.total_revenue_value / usd_rate, 0) if usd_rate else 0 }}</div></div>
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>{{ t('kpi_title') }}</h2>
+    <button class="btn btn-sm" onclick="window.print()">{{ t('print') }}</button></div>
+  <div class="table-wrap"><table>
+    <thead><tr>
+      <th>{{ t('staff_code') }}</th><th>{{ t('name') }}</th><th>{{ t('role') }}</th>
+      <th>{{ t('department') }}</th>
+      <th class="num">{{ t('projects') }}</th><th class="num">{{ t('hours') }}</th>
+      <th class="num">{{ t('cost_rate') }}</th><th class="num">{{ t('billing_rate') }}</th>
+      <th class="num">{{ t('cost_value') }}</th><th class="num">{{ t('revenue_value') }}</th>
+      <th class="num">USD</th><th>{{ t('utilization') }}</th><th class="num">{{ t('rating') }}</th>
+    </tr></thead>
+    <tbody>
+      {% for k in rows %}
+      {% set pct = k.utilization_pct %}
+      <tr>
+        <td class="muted nowrap">{{ k.staff_code }}</td>
+        <td><b>{{ k.name }}</b></td>
+        <td class="muted">{{ k.role }}</td>
+        <td class="muted">{{ k.department }}</td>
+        <td class="num">{{ k.projects }}</td>
+        <td class="num">{{ fmt(k.hours, 1) }}</td>
+        {% if k.has_salary %}
+        <td class="num">{{ fmt(k.cost_rate) }}</td>
+        <td class="num pos">{{ fmt(k.billing_rate) }}</td>
+        <td class="num">{{ fmt(k.cost_value) }}</td>
+        <td class="num pos">{{ fmt(k.revenue_value) }}</td>
+        <td class="num muted">${{ fmt(k.revenue_usd, 0) }}</td>
+        {% else %}
+        <td colspan="5" class="muted">{{ t('no_salary_set') }}</td>
+        {% endif %}
+        <td style="min-width:140px">
+          <div class="bar {% if pct < 35 %}bad{% elif pct < 60 %}warn{% endif %}">
+            <span style="width:{{ [pct, 100]|min|round|int }}%"></span></div>
+          <span class="faint" style="font-size:.72rem">{{ fmt(pct, 1) }}%</span></td>
+        <td class="num">{{ '★' * k.rating }}<span class="faint">{{ '★' * (5 - k.rating) }}</span></td>
+      </tr>
+      {% else %}{{ m.empty_row(13, t) }}{% endfor %}
+    </tbody>
+    {% if rows %}
+    <tfoot><tr class="total-row">
+      <td colspan="5">{{ t('total') }}</td>
+      <td class="num">{{ fmt(kpi.total_hours, 1) }}</td><td colspan="2"></td>
+      <td class="num">{{ fmt(kpi.total_cost_value) }}</td>
+      <td class="num">{{ fmt(kpi.total_revenue_value) }}</td>
+      <td class="num">${{ fmt(kpi.total_revenue_value / usd_rate, 0) if usd_rate else 0 }}</td>
+      <td colspan="2"></td>
+    </tr></tfoot>
+    {% endif %}
+  </table></div>
+  <div class="card-body"><p class="hint">{{ t('kpi_hint') }}</p></div>
+</div>
+{% endblock %}

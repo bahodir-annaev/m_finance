@@ -161,9 +161,42 @@ def _clean_lines(lines):
             'project_id': ln.get('project_id'),
             'phase_id': ln.get('phase_id'),
             'staff_id': ln.get('staff_id'),
+            'bank_account_id': ln.get('bank_account_id'),
             'description': ln.get('description'),
         })
     return cleaned
+
+
+def _check_bank_accounts(conn, cleaned):
+    """The «Банковские счета» subconto rule.
+
+    An account tagged subconto='bank_account' is subdivided into the firm's
+    real bank accounts (bank_accounts rows). Once at least one active bank
+    account is registered for it, every line on that account must say which
+    one it moves — a payment order without a payer account is not a payment
+    order. An account with no bank accounts registered posts as before, so
+    the rule switches on per account the day the register is filled, never
+    retroactively.
+    """
+    ids = {ln['account_id'] for ln in cleaned}
+    ph = ','.join('?' * len(ids))
+    subdivided = {r['id']: r['code'] for r in conn.execute(
+        f"SELECT a.id, a.code FROM accounts a WHERE a.id IN ({ph})"
+        f" AND a.subconto = 'bank_account'"
+        f" AND EXISTS (SELECT 1 FROM bank_accounts b"
+        f"             WHERE b.account_id = a.id AND b.is_active = 1)", list(ids))}
+    if not subdivided:
+        return
+    for ln in cleaned:
+        code = subdivided.get(ln['account_id'])
+        if code is None:
+            continue
+        if not ln['bank_account_id']:
+            raise PostingError('bank_account_required', code)
+        row = conn.execute("SELECT account_id FROM bank_accounts WHERE id=?",
+                           (ln['bank_account_id'],)).fetchone()
+        if not row or row['account_id'] != ln['account_id']:
+            raise PostingError('bank_account_mismatch', code)
 
 
 def post_entry(conn, date, lines, memo=None, document_id=None,
@@ -194,6 +227,7 @@ def post_entry(conn, date, lines, memo=None, document_id=None,
             'ledger_unbalanced',
             f'debit {total_debit:.2f} != credit {total_credit:.2f}')
 
+    _check_bank_accounts(conn, cleaned)
     ensure_fiscal_period(conn, period)
     entry_no = _next_entry_no(conn)
     cur = conn.execute(
@@ -207,12 +241,13 @@ def post_entry(conn, date, lines, memo=None, document_id=None,
         conn.execute(
             "INSERT INTO journal_lines"
             " (entry_id, line_no, account_id, debit, credit, currency, amount_cur,"
-            "  exchange_rate, counterparty_id, project_id, phase_id, staff_id, description)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "  exchange_rate, counterparty_id, project_id, phase_id, staff_id,"
+            "  bank_account_id, description)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (entry_id, i, ln['account_id'], ln['debit'], ln['credit'],
              ln['currency'], ln['amount_cur'], ln['exchange_rate'],
              ln['counterparty_id'], ln['project_id'], ln['phase_id'],
-             ln['staff_id'], ln['description']))
+             ln['staff_id'], ln['bank_account_id'], ln['description']))
 
     _write_audit(conn, 'post', 'journal_entries', entry_id,
                  context=f'entry #{entry_no} {date} {memo or ""} '
@@ -246,6 +281,7 @@ def reverse_entry(conn, entry_id, date=None, memo=None, allow_closed=False):
         'exchange_rate': r['exchange_rate'],
         'counterparty_id': r['counterparty_id'], 'project_id': r['project_id'],
         'phase_id': r['phase_id'], 'staff_id': r['staff_id'],
+        'bank_account_id': r['bank_account_id'],
         'description': r['description'],
     } for r in rows]
 
@@ -258,11 +294,13 @@ def reverse_entry(conn, entry_id, date=None, memo=None, allow_closed=False):
 
 # ========== Balances & reports ==========
 
-def _filters(project_id=None, counterparty_id=None, staff_id=None, phase_id=None):
+def _filters(project_id=None, counterparty_id=None, staff_id=None, phase_id=None,
+             bank_account_id=None):
     """Build the analytic WHERE fragment shared by the balance queries."""
     clauses, params = [], []
     for col, val in (('project_id', project_id), ('counterparty_id', counterparty_id),
-                     ('staff_id', staff_id), ('phase_id', phase_id)):
+                     ('staff_id', staff_id), ('phase_id', phase_id),
+                     ('bank_account_id', bank_account_id)):
         if val is not None:
             clauses.append(f" AND jl.{col} = ?")
             params.append(val)
@@ -271,7 +309,7 @@ def _filters(project_id=None, counterparty_id=None, staff_id=None, phase_id=None
 
 def account_turnover(account_code=None, account_id=None, date_from=None, date_to=None,
                      project_id=None, counterparty_id=None, staff_id=None,
-                     phase_id=None, conn=None):
+                     phase_id=None, bank_account_id=None, conn=None):
     """{'debit', 'credit', 'balance'} for one account over a date window.
 
     balance is signed in the account's natural direction (see natural_side).
@@ -300,7 +338,8 @@ def account_turnover(account_code=None, account_id=None, date_from=None, date_to
         if date_to:
             sql += " AND je.date <= ?"
             params.append(date_to)
-        extra, extra_params = _filters(project_id, counterparty_id, staff_id, phase_id)
+        extra, extra_params = _filters(project_id, counterparty_id, staff_id, phase_id,
+                                       bank_account_id)
         sql += extra
         params += extra_params
 
@@ -465,31 +504,39 @@ def get_journal(date_from=None, date_to=None, account_id=None, document_id=None,
     return heads
 
 
-def get_account_ledger(account_id, date_from=None, date_to=None):
-    """Running-balance statement for one account (карточка счёта)."""
+def get_account_ledger(account_id, date_from=None, date_to=None, bank_account_id=None):
+    """Running-balance statement for one account (карточка счёта).
+
+    bank_account_id narrows a subdivided money account to one bank account —
+    the statement of a single расчётный счёт.
+    """
     conn = get_db()
     try:
         acc = conn.execute("SELECT * FROM accounts WHERE id=?", (account_id,)).fetchone()
         if not acc:
             return None
         acc = dict(acc)
+        extra, extra_params = _filters(bank_account_id=bank_account_id)
         opening = 0.0
         if date_from:
             row = conn.execute(
                 "SELECT COALESCE(SUM(jl.debit),0) AS d, COALESCE(SUM(jl.credit),0) AS c"
                 " FROM journal_lines jl JOIN journal_entries je ON je.id = jl.entry_id"
-                " WHERE jl.account_id=? AND je.date < ?", (account_id, date_from)).fetchone()
+                f" WHERE jl.account_id=? AND je.date < ?{extra}",
+                [account_id, date_from] + extra_params).fetchone()
             opening = signed_balance(acc['code'], acc['kind'], row['d'], row['c'])
 
         sql = ("SELECT je.id AS entry_id, je.entry_no, je.date, je.memo, je.document_id,"
                " jl.debit, jl.credit, jl.description,"
-               " c.name AS counterparty_name, p.name AS project_name, s.name AS staff_name"
+               " c.name AS counterparty_name, p.name AS project_name, s.name AS staff_name,"
+               " b.name AS bank_account_name"
                " FROM journal_lines jl JOIN journal_entries je ON je.id = jl.entry_id"
                " LEFT JOIN counterparties c ON c.id = jl.counterparty_id"
                " LEFT JOIN projects p ON p.id = jl.project_id"
                " LEFT JOIN staff s ON s.id = jl.staff_id"
-               " WHERE jl.account_id = ?")
-        params = [account_id]
+               " LEFT JOIN bank_accounts b ON b.id = jl.bank_account_id"
+               " WHERE jl.account_id = ?" + extra)
+        params = [account_id] + extra_params
         if date_from:
             sql += " AND je.date >= ?"
             params.append(date_from)
@@ -517,12 +564,14 @@ def get_account_ledger(account_id, date_from=None, date_to=None):
 def balances_by_analytic(account_ids, analytic, as_of=None, min_abs=0.01):
     """Balances of one or more accounts grouped by an analytic dimension.
 
-    analytic ∈ 'counterparty_id' | 'project_id' | 'staff_id'. Powers AR/AP by
-    counterparty, project profitability and the payroll payable breakdown.
+    analytic ∈ 'counterparty_id' | 'project_id' | 'staff_id' | 'phase_id' |
+    'bank_account_id'. Powers AR/AP by counterparty, project profitability,
+    the payroll payable breakdown and cash per bank account.
     """
     if not account_ids:
         return []
-    if analytic not in ('counterparty_id', 'project_id', 'staff_id', 'phase_id'):
+    if analytic not in ('counterparty_id', 'project_id', 'staff_id', 'phase_id',
+                        'bank_account_id'):
         raise ValueError(f'bad analytic: {analytic}')
     conn = get_db()
     try:

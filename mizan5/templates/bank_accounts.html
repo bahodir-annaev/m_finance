@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block heading %}{{ t('nav_bank_accounts') }}{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-head"><h2>{{ t('nav_bank_accounts') }}</h2>
+    <button class="btn btn-primary" onclick="openModal('baModal')">+ {{ t('new') }}</button></div>
+  <div class="card-body">
+    <p class="hint">{{ t('bank_accounts_hint') }}</p>
+  </div>
+
+  {% for g in groups %}
+  <div class="card-head" style="border-top:1px solid var(--line)">
+    <h2><a href="/accounts/{{ g.account.id }}/card">{{ g.account.code }}</a>
+      <span class="faint">{{ g.account['name_' ~ lang] or g.account.name_ru }}</span></h2>
+    <span class="num"><b>{{ fmt(g.total) }}</b></span>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th>{{ t('name') }}</th><th>{{ t('bank_account_number') }}</th>
+        <th>{{ t('bank_name') }}</th><th>{{ t('mfo') }}</th><th>{{ t('currency') }}</th>
+        <th>{{ t('is_default') }}</th><th>{{ t('status') }}</th>
+        <th class="num">{{ t('balance') }}</th><th style="width:1%"></th>
+      </tr></thead>
+      <tbody>
+        {% for b in g.banks %}
+        <tr>
+          <td><b><a href="/accounts/{{ g.account.id }}/card?bank_account_id={{ b.id }}">{{ b.name }}</a></b></td>
+          <td class="muted nowrap">{{ b.account_number or '—' }}</td>
+          <td class="muted">{{ b.bank_name or '—' }}</td>
+          <td class="muted nowrap">{{ b.mfo or '—' }}</td>
+          <td>{{ b.currency }}</td>
+          <td>{% if b.is_default %}<span class="badge badge-ok">{{ t('yes') }}</span>{% endif %}</td>
+          <td>{% if b.is_active %}<span class="badge badge-ok">{{ t('project_active') }}</span>
+              {% else %}<span class="badge badge-draft">{{ t('no') }}</span>{% endif %}</td>
+          <td class="num {% if b.balance < 0 %}neg{% endif %}">{{ fmt(b.balance) }}</td>
+          <td>{{ m.edit_btn('baModal', b, t) }}</td>
+        </tr>
+        {% else %}{{ m.empty_row(9, t) }}{% endfor %}
+        {% if g.unassigned_lines or g.unassigned %}
+        <tr class="total-row">
+          <td colspan="7">
+            {{ t('unassigned') }}
+            <span class="faint">· {{ g.unassigned_lines }} {{ t('lines') }}</span>
+            {% if g.banks and current_user.can('admin') %}
+            <form method="post" style="display:inline-flex;gap:6px;margin-left:12px"
+                  onsubmit="this.action='/bank-accounts/'+this.bank.value+'/assign-unassigned';
+                            return confirm('{{ t('assign_unassigned_confirm') }}')">
+              <select name="bank" style="width:auto">
+                {% for b in g.banks %}{% if b.is_active %}
+                <option value="{{ b.id }}">{{ b.name }}</option>{% endif %}{% endfor %}
+              </select>
+              <button class="btn btn-sm">{{ t('assign_unassigned') }}</button>
+            </form>
+            {% endif %}
+          </td>
+          <td class="num">{{ fmt(g.unassigned) }}</td><td></td>
+        </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="card-body"><p class="empty">{{ t('no_records') }}</p></div>
+  {% endfor %}
+</div>
+
+{% call m.modal('baModal', t('nav_bank_accounts'), '/bank-accounts/save', t) %}
+  <div class="grid grid-2">
+    <div class="field"><label>{{ t('ledger_account') }} *</label>
+      <select name="account_id" data-reset required>
+        {% for a in ledgers %}
+        <option value="{{ a.id }}">{{ a.code }} — {{ a['name_' ~ lang] or a.name_ru }}</option>
+        {% endfor %}
+      </select></div>
+    {{ m.text_field('name', t('name'), required=True) }}
+    {{ m.text_field('account_number', t('bank_account_number'), attrs='maxlength="34" inputmode="numeric"') }}
+    {{ m.text_field('bank_name', t('bank_name')) }}
+    {{ m.text_field('mfo', t('mfo'), attrs='maxlength="10"') }}
+    <div class="field"><label>{{ t('currency') }}</label>
+      <select name="currency" data-reset>
+        <option value="UZS">UZS</option><option value="USD">USD</option></select></div>
+  </div>
+  {{ m.text_field('notes', t('notes')) }}
+  <div class="checkbox"><input type="checkbox" name="is_default" id="baDefault" value="1">
+    <label for="baDefault">{{ t('is_default') }}</label></div>
+  <div class="checkbox"><input type="checkbox" name="is_active" id="baActive" value="1" checked>
+    <label for="baActive">{{ t('project_active') }}</label></div>
+{% endcall %}
+{% endblock %}

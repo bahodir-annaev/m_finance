@@ -171,9 +171,17 @@ def get_cash_flow(date_from=None, date_to=None):
     Inflow is every debit to 5xxx, outflow every credit, so the running balance
     is the ledger's cash balance by construction — it can never drift from the
     dashboard tile the way a reconstructed figure could.
+
+    Each month is additionally split external / internal / financing (see
+    models/direction.py) — v4's `ext_expense` / `int_expense` / `loan_flow`
+    reading. The split is presentation only: `inflow`, `outflow`, `net` and
+    `running_balance` are the undivided figures and stay authoritative.
     """
+    from .direction import cash_turnover_by_direction, DIRECTIONS
+
     ids = cash_account_ids()
     turnover = monthly_turnover(ids, date_from, date_to)
+    split = cash_turnover_by_direction(ids, date_from, date_to)
     opening = 0.0
     if date_from:
         conn = get_db()
@@ -190,16 +198,66 @@ def get_cash_flow(date_from=None, date_to=None):
 
     rows = []
     running = opening
+    totals_by_direction = {d: {'in': 0.0, 'out': 0.0} for d in DIRECTIONS}
     for period in sorted(turnover):
         inflow = turnover[period]['debit']
         outflow = turnover[period]['credit']
         net = inflow - outflow
         running += net
-        rows.append({'period': period, 'inflow': inflow, 'outflow': outflow,
-                     'net': net, 'running_balance': running})
+        row = {'period': period, 'inflow': inflow, 'outflow': outflow,
+               'net': net, 'running_balance': running}
+        parts = split.get(period, {})
+        for d in DIRECTIONS:
+            row[f'{d}_in'] = parts.get(d, {}).get('debit', 0.0)
+            row[f'{d}_out'] = parts.get(d, {}).get('credit', 0.0)
+            totals_by_direction[d]['in'] += row[f'{d}_in']
+            totals_by_direction[d]['out'] += row[f'{d}_out']
+        rows.append(row)
     return {'rows': rows, 'opening': opening, 'closing': running,
             'total_in': sum(r['inflow'] for r in rows),
-            'total_out': sum(r['outflow'] for r in rows)}
+            'total_out': sum(r['outflow'] for r in rows),
+            'totals_by_direction': totals_by_direction}
+
+
+def payment_method_summary(date_from=None, date_to=None):
+    """Cash in / out by the payment method on the document (bank, naqd, karta…).
+
+    Read off the money accounts, not off document totals, so a document that
+    moves cash on several lines is still counted once per som and the total
+    reconciles with get_cash_flow(). Entries with no document (FX revaluation,
+    the period close) never touch cash and cannot appear here.
+    """
+    ids = cash_account_ids()
+    conn = get_db()
+    try:
+        ph = ','.join('?' * len(ids))
+        sql = (f"SELECT COALESCE(d.payment_method, 'bank') AS method,"
+               f" COALESCE(SUM(jl.debit),0) AS cash_in, COALESCE(SUM(jl.credit),0) AS cash_out"
+               f" FROM journal_lines jl JOIN journal_entries je ON je.id = jl.entry_id"
+               f" LEFT JOIN documents d ON d.id = je.document_id"
+               f" WHERE jl.account_id IN ({ph})")
+        params = list(ids)
+        if date_from:
+            sql += " AND je.date >= ?"
+            params.append(date_from)
+        if date_to:
+            sql += " AND je.date <= ?"
+            params.append(date_to)
+        sql += " GROUP BY method ORDER BY cash_in + cash_out DESC"
+        rows = [dict(r) for r in conn.execute(sql, params)]
+        labels = {r['code']: dict(r) for r in conn.execute(
+            "SELECT code, label_uz, label_en, label_ru FROM payment_types")}
+    finally:
+        conn.close()
+    for r in rows:
+        lab = labels.get(r['method'], {})
+        r['label_uz'] = lab.get('label_uz') or r['method']
+        r['label_en'] = lab.get('label_en') or r['label_uz']
+        r['label_ru'] = lab.get('label_ru') or r['label_uz']
+        r['net'] = r['cash_in'] - r['cash_out']
+    return {'rows': rows,
+            'total_in': sum(r['cash_in'] for r in rows),
+            'total_out': sum(r['cash_out'] for r in rows)}
 
 
 def cash_balance(as_of=None):
@@ -207,15 +265,32 @@ def cash_balance(as_of=None):
 
 
 def cash_by_account(as_of=None):
+    """Each money account's balance, with its bank accounts underneath when
+    the account is subdivided (see models/bank_accounts.py). The per-account
+    `balance` is the ledger figure; the bank list only adds detail beside it.
+    """
     conn = get_db()
     try:
         rows = conn.execute(
             "SELECT a.code, a.name_ru, a.name_uz, a.id FROM accounts a"
             " WHERE a.code IN ('5010','5110','5210') ORDER BY a.code").fetchall()
+        banks = conn.execute(
+            "SELECT id, account_id, name, account_number, currency FROM bank_accounts"
+            " WHERE is_active=1 ORDER BY is_default DESC, name").fetchall()
     finally:
         conn.close()
-    return [{'code': r['code'], 'name_ru': r['name_ru'], 'name_uz': r['name_uz'],
-             'balance': account_balance(account_id=r['id'], as_of=as_of)} for r in rows]
+    out = []
+    for r in rows:
+        mine = [dict(b) for b in banks if b['account_id'] == r['id']]
+        if mine:
+            by_bank = {b['key']: b['balance'] for b in balances_by_analytic(
+                [r['id']], 'bank_account_id', as_of=as_of, min_abs=0)}
+            for b in mine:
+                b['balance'] = by_bank.get(b['id'], 0.0)
+        out.append({'code': r['code'], 'name_ru': r['name_ru'], 'name_uz': r['name_uz'],
+                    'balance': account_balance(account_id=r['id'], as_of=as_of),
+                    'bank_accounts': mine})
+    return out
 
 
 # ========== Aging ==========
@@ -524,16 +599,28 @@ def close_period(period, status='hard_closed', post_closing=True, snapshot=True,
             'depreciation_total': dep_total}, None
 
 
-def reopen_period(period):
+def reopen_period(period, allow_hard=False):
     """Reopen a period, reversing both its closing and depreciation entries.
 
     Depreciation is reversed as well as the close because the two are created
     together: leaving the charge in place would make the idempotency guard skip
     it on re-close, so a register corrected during the reopen would be silently
     ignored and the books would keep the stale figure.
+
+    A HARD close is final from the UI: the month has been reported on, and a
+    correction goes in as a reversal in an open period. Only a caller that
+    passes allow_hard=True (a scripted correction, the tests) may unlock one;
+    the controller never does. Returns False when refused.
     """
     from .ledger import reverse_entry
     from .depreciation import depreciation_posted_entry, DEPRECIATION_STORNO_MEMO
+    from .base import get_period_status
+
+    # A hard close is final: the books for that month have been reported on.
+    # A correction goes in as a reversal in an open period, never by unlocking
+    # history. Returns False so the caller can say why nothing happened.
+    if get_period_status(period) == 'hard_closed' and not allow_hard:
+        return False
 
     conn = get_db()
     try:
@@ -565,11 +652,18 @@ def reopen_period(period):
 
 
 def list_periods(limit=36):
+    """Periods newest first, with the entry count and how complete the close
+    snapshots are (rate allocations written, timesheet rows stamped)."""
     conn = get_db()
     try:
         rows = conn.execute(
             "SELECT fp.*,"
-            " (SELECT COUNT(*) FROM journal_entries je WHERE je.period = fp.code) AS entries"
+            " (SELECT COUNT(*) FROM journal_entries je WHERE je.period = fp.code) AS entries,"
+            " (SELECT COUNT(*) FROM period_allocations pa WHERE pa.period = fp.code)"
+            "   AS staff_snapshots,"
+            " (SELECT COUNT(*) FROM project_hours ph WHERE ph.period = fp.code"
+            "    AND ph.rate_snapshot_source IS NOT NULL) AS hours_snapped,"
+            " (SELECT COUNT(*) FROM project_hours ph WHERE ph.period = fp.code) AS hours_total"
             " FROM fiscal_periods fp ORDER BY fp.code DESC LIMIT ?", (limit,)).fetchall()
         return [dict(r) for r in rows]
     finally:
@@ -634,7 +728,10 @@ def get_capacity():
 
 def get_dashboard():
     """Everything the landing page shows, in one pass."""
-    from .projects import get_portfolio_summary
+    from .projects import (get_budget_overview, get_portfolio_summary,
+                           get_projects_on_course_summary, get_top_projects)
+    from .staff import rate_context, get_rates_overview
+    from .loans import loan_summary
 
     today = today_str()
     ar = get_aging('ar', today)
@@ -642,6 +739,8 @@ def get_dashboard():
     year_start = f'{today[:4]}-01-01'
     pnl = get_pnl(year_start, today)
     runway = get_runway()
+    # Year to date, so the split reads on the same basis as the P&L tile above it.
+    cash_split = get_cash_flow(year_start, today)['totals_by_direction']
 
     conn = get_db()
     try:
@@ -652,15 +751,51 @@ def get_dashboard():
             " ORDER BY d.date DESC, d.id DESC LIMIT 8")]
         drafts = conn.execute(
             "SELECT COUNT(*) AS n FROM documents WHERE status='draft'").fetchone()['n']
+        admin_count = conn.execute(
+            "SELECT COUNT(*) AS n FROM staff WHERE staff_type='admin' AND is_active=1"
+        ).fetchone()['n']
+        ctx = rate_context(conn)
     finally:
         conn.close()
+
+    overview = get_budget_overview()
+    portfolio = get_portfolio_summary(overview)
+    top = get_top_projects(10, ctx=ctx)
+    rates = get_rates_overview()
+    capacity = get_capacity()
+
+    # CFO extras (v4 dashboard): break-even revenue, revenue per production
+    # employee, profit per billable hour. All from the same figures the tiles
+    # above already show, so they cannot disagree with them.
+    fixed_monthly = runway['burn_detail']['total']
+    income = portfolio['invoiced']
+    gross_profit = income - portfolio['cost']
+    avg_margin = (gross_profit / income) if income > 0 else 0.5
+    prod_count = capacity['staff_count']
 
     return {
         'cash': runway['cash'], 'cash_accounts': cash_by_account(today),
         'receivable': ar['total'], 'receivable_overdue': ar['overdue'],
+        'ar_buckets': ar['buckets'],
         'payable': ap['total'], 'payable_overdue': ap['overdue'],
-        'pnl': pnl, 'runway': runway, 'capacity': get_capacity(),
-        'portfolio': get_portfolio_summary(),
+        'pnl': pnl, 'runway': runway, 'capacity': capacity,
+        'cash_split': cash_split,
+        'portfolio': portfolio,
+        'on_course': get_projects_on_course_summary(overview),
+        'top_projects': top,
+        'fx': fx_position(today),
+        'loans': loan_summary(),
+        'staff': {'production': prod_count, 'admin': admin_count,
+                  'total_hours': portfolio['hours'],
+                  'avg_cost_rate': rates['avg_cost_rate'],
+                  'avg_billing_rate': rates['avg_billing_rate'],
+                  'utilization_pct': rates['firm_utilization_pct'],
+                  'overhead_rate_pct': rates['firm_overhead_rate_pct']},
+        'cfo': {'breakeven_revenue': fixed_monthly / max(avg_margin, 0.01),
+                'revenue_per_employee': income / max(prod_count, 1),
+                'profit_per_hour': gross_profit / max(portfolio['hours'], 1),
+                'gross_profit': gross_profit,
+                'gross_margin_pct': (gross_profit / income * 100) if income > 0 else 0.0},
         'recent_documents': recent, 'draft_count': drafts,
         'usd_rate': get_current_usd_rate(), 'as_of': today,
     }

@@ -7,7 +7,7 @@ project — that is what the timesheet is for.
 
 Risk coefficient is never applied to cost. It only raises a quoted price.
 """
-from .base import get_db, now_ts, is_period_closed, _write_audit
+from .base import get_db, now_ts, is_period_closed, _write_audit, get_current_usd_rate
 from .ledger import account_id_for
 from .staff import calculate_hourly_rate, rate_context
 
@@ -34,16 +34,36 @@ def budget_verdict(d_pct):
 
 # ========== CRUD ==========
 
-def list_projects(status=None, billable_only=False, search=None):
+PROJECT_SORTS = {
+    'hours': 'total_hours DESC, p.name',
+    'name': 'p.name',
+    'status': 'p.status, p.name',
+    'contract': 'p.contract_amount DESC, p.name',
+    'start': "COALESCE(p.start_date,'') DESC, p.name",
+}
+
+
+def list_projects(status=None, billable_only=False, search=None, sort='hours'):
+    """Project register rows with the counts the list page shows: lifetime
+    hours, distinct people, milestones done/total and how many are late."""
     conn = get_db()
     try:
         sql = ("SELECT p.*, c.name AS client_name, s.name AS responsible_name,"
+               " COALESCE(h.total_hours, 0) AS total_hours,"
+               " COALESCE(h.staff_count, 0) AS staff_count,"
                " (SELECT COUNT(*) FROM project_phases pp WHERE pp.project_id = p.id) AS ms_total,"
                " (SELECT COUNT(*) FROM project_phases pp WHERE pp.project_id = p.id"
-               "    AND pp.status='done') AS ms_done"
+               "    AND pp.status='done') AS ms_done,"
+               " (SELECT COUNT(*) FROM project_phases pp WHERE pp.project_id = p.id"
+               "    AND pp.end_date IS NOT NULL AND pp.end_date < date('now')"
+               "    AND pp.status NOT IN ('done','cancelled')) AS ms_late"
                " FROM projects p"
                " LEFT JOIN counterparties c ON c.id = p.counterparty_id"
-               " LEFT JOIN staff s ON s.id = p.responsible_id WHERE 1=1")
+               " LEFT JOIN staff s ON s.id = p.responsible_id"
+               " LEFT JOIN (SELECT project_id, SUM(hours) AS total_hours,"
+               "                   COUNT(DISTINCT staff_id) AS staff_count"
+               "            FROM project_hours GROUP BY project_id) h"
+               "   ON h.project_id = p.id WHERE 1=1")
         params = []
         if status:
             sql += " AND p.status = ?"
@@ -53,7 +73,7 @@ def list_projects(status=None, billable_only=False, search=None):
         if search:
             sql += " AND (ulower(p.name) LIKE ulower(?) OR ulower(c.name) LIKE ulower(?))"
             params += [f'%{search}%', f'%{search}%']
-        sql += " ORDER BY p.status, p.name"
+        sql += " ORDER BY " + PROJECT_SORTS.get(sort, PROJECT_SORTS['hours'])
         return [dict(r) for r in conn.execute(sql, params)]
     finally:
         conn.close()
@@ -99,6 +119,40 @@ def create_project(data):
         conn.close()
 
 
+def calculate_fx_gain_loss(project_id, conn=None):
+    """Unrealised FX exposure on a project's foreign-currency invoices.
+
+    For every posted invoice in a currency other than UZS the exposure is the
+    document's own currency amount times the move from the rate it was booked
+    at to the current rate. Sales invoices gain when the som weakens; purchase
+    invoices lose. Payments are not counted — the invoice already carries the
+    whole exposure, so adding its settlements would count the principal twice.
+    """
+    own = conn is None
+    conn = conn or get_db()
+    try:
+        rows = conn.execute(
+            "SELECT doc_type, total_cur, exchange_rate, total FROM documents"
+            " WHERE project_id=? AND status='posted' AND currency != 'UZS'"
+            "   AND doc_type IN ('sales_invoice','purchase_invoice')",
+            (project_id,)).fetchall()
+    finally:
+        if own:
+            conn.close()
+    current = get_current_usd_rate()
+    total = 0.0
+    for r in rows:
+        rate = _num(r['exchange_rate'])
+        amount_cur = _num(r['total_cur'])
+        if amount_cur <= 0 and rate > 0:
+            amount_cur = _num(r['total']) / rate
+        if amount_cur <= 0 or rate <= 0:
+            continue
+        move = amount_cur * (current - rate)
+        total += move if r['doc_type'] == 'sales_invoice' else -move
+    return total
+
+
 # ========== Actuals ==========
 
 def project_actuals(project_id, conn=None, ctx=None):
@@ -141,10 +195,12 @@ def project_actuals(project_id, conn=None, ctx=None):
 
     labor = billing = hours = 0.0
     closed_cache = {}
+    closed_set = ctx.get('closed_periods')
     for r in hour_rows:
         period = r['period']
         if period not in closed_cache:
-            closed_cache[period] = is_period_closed(period)
+            closed_cache[period] = (period in closed_set if closed_set is not None
+                                    else is_period_closed(period))
         info = calculate_hourly_rate(r['staff_id'], context=ctx)
         cost_rate = info['cost_rate'] if info else 0.0
         billing_rate = info['billing_rate'] if info else 0.0
@@ -206,6 +262,7 @@ def calculate_project_cost(project_id, ctx=None):
     earned = _num(project.get('contract_amount')) * completion
 
     return {**project, **actuals, 'staff_breakdown': breakdown,
+            'fx_gain_loss': calculate_fx_gain_loss(project_id),
             'completion_ratio': completion, 'earned_revenue': earned,
             'risk_price': actuals['labor'] * _num(project.get('risk_coefficient') or 1)}
 
@@ -213,20 +270,35 @@ def calculate_project_cost(project_id, ctx=None):
 # ========== Budget: plan vs fact ==========
 
 def get_budget_overview():
-    """One row per billable project: frozen baseline against lifetime actuals.
+    """One row per billable project, under BOTH portfolio lenses:
 
+      whole   — the frozen projects.planned_* baseline against lifetime
+                actuals. "Will we come in over budget?" The ±5/−10 badge.
+      to_date — time-phased: day-weighted milestone plan against actuals for
+                months strictly before the current one. "Are we where we
+                should be by now?" The on/edge/off traffic light.
+
+    They measure different things and are never reconciled into one number.
     Projects with no frozen plan are shown as unplanned and excluded from the
     plan-side totals — the plan is never fabricated from the actuals, which is
     what made every unplanned project look on-budget in earlier versions.
     """
+    from .milestones import get_project_monthly_rollup
+
     conn = get_db()
     try:
         projects = conn.execute(
             "SELECT id, name, status, plan_frozen_date, planned_hours, planned_cost,"
             " planned_revenue, planned_outsourcing, planned_material,"
-            " estimated_total_hours FROM projects WHERE is_billable=1 ORDER BY name"
+            " estimated_total_hours,"
+            " (SELECT COUNT(*) FROM project_phases pp WHERE pp.project_id = p.id) AS ms_total,"
+            " (SELECT COUNT(*) FROM project_phases pp WHERE pp.project_id = p.id"
+            "    AND pp.status='done') AS ms_done"
+            " FROM projects p WHERE is_billable=1 ORDER BY name"
         ).fetchall()
         ctx = rate_context(conn)
+        rollups = {p['id']: get_project_monthly_rollup(p['id'], conn=conn, ctx=ctx)
+                   for p in projects}
     finally:
         conn.close()
 
@@ -234,10 +306,14 @@ def get_budget_overview():
     totals = {'p_hours': 0.0, 'p_cost': 0.0, 'p_direct': 0.0, 'p_total': 0.0,
               'p_revenue': 0.0, 'f_hours': 0.0, 'f_cost': 0.0, 'f_direct': 0.0,
               'f_total': 0.0, 'f_revenue': 0.0}
+    td_totals = {'plan_income': 0.0, 'plan_expense': 0.0, 'plan_profit': 0.0,
+                 'fact_income': 0.0, 'fact_expense': 0.0, 'fact_profit': 0.0}
+    counts = {'on': 0, 'edge': 0, 'off': 0, 'none': 0}
     planned_fact_total = 0.0
 
     for p in projects:
         a = project_actuals(p['id'], ctx=ctx)
+        rollup = rollups[p['id']]
         p_hours = _num(p['planned_hours'])
         p_cost = _num(p['planned_cost'])
         p_direct = _num(p['planned_outsourcing']) + _num(p['planned_material'])
@@ -266,9 +342,17 @@ def get_budget_overview():
         totals['f_total'] += f_total
         totals['f_revenue'] += a['invoiced']
 
+        headline = rollup['status']['headline']
+        counts[headline] += 1
+        td = rollup['to_date']
+        for k in td_totals:
+            td_totals[k] += td[k]
+        plan_months = [r['period'] for r in rollup['months'] if not r['unplanned']]
+
         rows.append({
             'id': p['id'], 'name': p['name'], 'project_status': p['status'],
             'plan_frozen_date': p['plan_frozen_date'], 'has_plan': has_plan,
+            'ms_total': p['ms_total'], 'ms_done': p['ms_done'],
             'p_hours': p_hours, 'p_cost': p_cost, 'p_direct': p_direct,
             'p_total': p_total, 'p_revenue': p_revenue,
             'f_hours': a['hours'], 'f_cost': a['labor'], 'f_direct': a['direct'],
@@ -277,6 +361,11 @@ def get_budget_overview():
             'd_total': d_total, 'd_pct': d_pct,
             'status': status_key, 'css': css,
             'profit': a['profit'], 'margin_pct': a['margin_pct'],
+            # time-phased lens
+            'to_date': td, 'light': rollup['status'],
+            'any_late': rollup['any_late'],
+            'months_planned': len(plan_months),
+            'months_range': (f"{plan_months[0]} – {plan_months[-1]}" if plan_months else ''),
         })
 
     d_total = planned_fact_total - totals['p_total']
@@ -284,12 +373,23 @@ def get_budget_overview():
     return {'rows': rows, 'totals': totals, 'total_d': d_total, 'total_d_pct': d_pct,
             'total_css': 'profit' if d_pct <= 0 else 'loss',
             'planned_count': sum(1 for r in rows if r['has_plan']),
-            'unplanned_count': sum(1 for r in rows if not r['has_plan'])}
+            'unplanned_count': sum(1 for r in rows if not r['has_plan']),
+            'to_date_totals': td_totals, 'light_counts': counts}
 
 
-def get_portfolio_summary():
+def get_projects_on_course_summary(overview=None):
+    """Dashboard counts for the time-phased lens."""
+    ov = overview or get_budget_overview()
+    c = ov['light_counts']
+    tracked = c['on'] + c['edge'] + c['off']
+    return {'on': c['on'], 'edge': c['edge'], 'off': c['off'], 'none': c['none'],
+            'tracked': tracked, 'total': len(ov['rows']),
+            'late_projects': sum(1 for r in ov['rows'] if r['any_late'])}
+
+
+def get_portfolio_summary(overview=None):
     """Headline numbers for the dashboard's project tile."""
-    ov = get_budget_overview()
+    ov = overview or get_budget_overview()
     over = sum(1 for r in ov['rows'] if r['status'] == 'over')
     return {
         'total': len(ov['rows']),
@@ -298,4 +398,26 @@ def get_portfolio_summary():
         'invoiced': ov['totals']['f_revenue'],
         'cost': ov['totals']['f_total'],
         'profit': ov['totals']['f_revenue'] - ov['totals']['f_total'],
+        'hours': ov['totals']['f_hours'],
     }
+
+
+def get_top_projects(limit=10, ctx=None):
+    """The dashboard's project table: billable projects by lifetime hours, with
+    the full profitability picture (cost, billing value, income, FX, margin)."""
+    conn = get_db()
+    try:
+        ids = [r['id'] for r in conn.execute(
+            "SELECT p.id, COALESCE(SUM(ph.hours),0) AS h FROM projects p"
+            " LEFT JOIN project_hours ph ON ph.project_id = p.id"
+            " WHERE p.is_billable=1 GROUP BY p.id ORDER BY h DESC, p.name LIMIT ?",
+            (limit,))]
+        ctx = ctx or rate_context(conn)
+    finally:
+        conn.close()
+    out = []
+    for pid in ids:
+        pc = calculate_project_cost(pid, ctx=ctx)
+        if pc:
+            out.append(pc)
+    return out

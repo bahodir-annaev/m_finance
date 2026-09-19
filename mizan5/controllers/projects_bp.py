@@ -11,7 +11,9 @@ from models import (
     get_plan_baseline, save_project_risk, get_project_risk,
     get_production_staff_rates, get_lookup, get_db, now_ts, update_record,
     STANDARD_SCHEDULE, RISK_CLIENT_TYPES, RISK_COMPLEXITIES, get_document,
-    list_documents,
+    list_documents, get_project_monthly_rollup, get_unassigned_actuals,
+    suggest_phase_for_period, assign_hours_to_milestone,
+    assign_document_to_milestone, PROJECT_SORTS, rate_context,
 )
 from utils import render_page, t, parse_float, parse_int, form_rows
 
@@ -21,8 +23,9 @@ bp = Blueprint('projects', __name__)
 @bp.route('/projects')
 @login_required
 def projects_page():
+    sort = request.args.get('sort') or 'hours'
     rows = list_projects(status=request.args.get('status') or None,
-                         search=request.args.get('q') or None)
+                         search=request.args.get('q') or None, sort=sort)
     conn = get_db()
     try:
         counterparties = [dict(r) for r in conn.execute(
@@ -35,6 +38,7 @@ def projects_page():
                        counterparties=counterparties, staff=staff,
                        search=request.args.get('q') or '',
                        status=request.args.get('status') or '',
+                       sort=sort, sorts=list(PROJECT_SORTS),
                        title=t('projects'))
 
 
@@ -74,11 +78,22 @@ def project_detail(project_id):
     project = get_project(project_id)
     if not project:
         abort(404)
-    plan = price_project_plan(project_id)
+    # One rate context for every figure on the page, so they agree and the
+    # shared pools are resolved once rather than once per card.
+    ctx = rate_context()
+    milestones = get_project_milestones(project_id, ctx=ctx)
+    plan = price_project_plan(project_id, milestones=milestones)
+    rollup = get_project_monthly_rollup(project_id, milestones=milestones, ctx=ctx)
+    unassigned = get_unassigned_actuals(project_id)
+    for hp in unassigned['hour_periods']:
+        hp['suggested'] = suggest_phase_for_period(project_id, hp['period'], milestones)
     return render_page('projects', 'project_detail.html',
                        project=project,
-                       cost=calculate_project_cost(project_id),
-                       milestones=get_project_milestones(project_id),
+                       cost=calculate_project_cost(project_id, ctx=ctx),
+                       milestones=milestones,
+                       rollup=rollup,
+                       unassigned=unassigned,
+                       total_ev=sum(m['earned_value'] for m in milestones),
                        plan=plan,
                        baseline=get_plan_baseline(project_id),
                        risk=get_project_risk(project_id),
@@ -113,6 +128,8 @@ def milestone_save(project_id):
     name = (request.form.get('name') or '').strip()
     fields = {
         'name': name,
+        'code': (request.form.get('code') or '').strip() or None,
+        'sort_order': parse_int(request.form.get('sort_order'), 100) or 100,
         'work_type': request.form.get('work_type') or None,
         'start_date': request.form.get('start_date') or None,
         'end_date': request.form.get('end_date') or None,
@@ -207,6 +224,37 @@ def project_freeze(project_id):
         flash(f'<div class="alert alert-error">{t("error")}</div>', 'error')
     else:
         flash(f'<div class="alert alert-success">{t("plan_frozen")}</div>', 'success')
+    return redirect(f'/projects/{project_id}')
+
+
+@bp.route('/projects/<int:project_id>/assign-hours', methods=['POST'])
+@login_required
+@require_level('manager')
+def project_assign_hours(project_id):
+    """Attach one timesheet month to a milestone (blank phase = unassign)."""
+    period = (request.form.get('period') or '').strip()
+    phase_id = parse_int(request.form.get('phase_id'))
+    updated = assign_hours_to_milestone(project_id, period, phase_id) if period else -1
+    if updated < 0:
+        flash(f'<div class="alert alert-error">{t("error")}</div>', 'error')
+    else:
+        flash(f'<div class="alert alert-success">{t("hours_assigned", updated)}</div>',
+              'success')
+    return redirect(f'/projects/{project_id}')
+
+
+@bp.route('/projects/<int:project_id>/assign-document', methods=['POST'])
+@login_required
+@require_level('manager')
+def project_assign_document(project_id):
+    """Tag a posted invoice on this project to a milestone."""
+    doc_id = parse_int(request.form.get('doc_id'))
+    phase_id = parse_int(request.form.get('phase_id'))
+    ok, err = assign_document_to_milestone(doc_id, phase_id) if doc_id else (False, 'not_found')
+    if ok:
+        flash(f'<div class="alert alert-success">{t("saved")}</div>', 'success')
+    else:
+        flash(f'<div class="alert alert-error">{t("error")} — {err}</div>', 'error')
     return redirect(f'/projects/{project_id}')
 
 

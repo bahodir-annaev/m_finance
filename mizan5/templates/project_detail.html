@@ -24,6 +24,21 @@
   <div class="tile"><div class="label">{{ t('completion') }}</div>
     <div class="value">{{ fmt(cost.completion_ratio * 100, 0) }}%</div>
     <div class="sub">{{ t('revenue') }}: {{ fmt(cost.earned_revenue) }}</div></div>
+  <div class="tile"><div class="label">{{ t('earned_value') }}</div>
+    <div class="value">{{ fmt(total_ev) }}</div>
+    <div class="sub">{{ t('plan') }}: {{ fmt(rollup.totals.plan_income) }}</div></div>
+  <div class="tile {% if cost.fx_gain_loss >= 0 %}ok{% else %}bad{% endif %}">
+    <div class="label">{{ t('fx_gain_loss') }}</div>
+    <div class="value">{{ fmt_signed(cost.fx_gain_loss) }}</div>
+    <div class="sub">{{ project.currency }}</div></div>
+  <div class="tile">
+    <div class="label">{{ t('on_course') }}</div>
+    <div class="value" style="font-size:1rem">{{ m.light_badge(rollup.status.headline, t) }}</div>
+    <div class="sub" style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px">
+      {{ m.light_badge(rollup.status.money, t, t('light_money')) }}
+      {{ m.light_badge(rollup.status.schedule, t, t('light_schedule')) }}
+      {{ m.light_badge(rollup.status.collections, t, t('light_collections')) }}
+    </div></div>
 </div>
 
 {# ── Plan & Price ─────────────────────────────────────────────────────── #}
@@ -113,6 +128,7 @@
           <td class="nowrap">
             {% if ms %}{{ m.edit_btn('msModal', {
               'id': ms.id, 'name': ms.name, 'work_type': ms.work_type,
+              'code': ms.code, 'sort_order': ms.sort_order,
               'start_date': ms.start_date, 'end_date': ms.end_date,
               'planned_outsourcing': ms.planned_outsourcing,
               'planned_material': ms.planned_material,
@@ -211,12 +227,142 @@
   </div>
 </div>
 
+{# ── Monthly plan vs fact (time-phased lens) ─────────────────────────── #}
+<div class="card">
+  <div class="card-head"><h2>{{ t('monthly_plan_fact') }}</h2>
+    <span class="hint">{{ t('to_date_note') }}</span></div>
+  {% if rollup.undated %}
+  <div class="card-body" style="padding-bottom:0">
+    <div class="alert alert-warn">{{ t('undated_milestones') }}: {{ rollup.undated | join(', ') }}</div></div>
+  {% endif %}
+  {% if rollup.months %}
+  <div class="card-body" style="display:flex;gap:18px;flex-wrap:wrap;font-size:.82rem;border-bottom:1px solid var(--line)">
+    <span>{{ t('td_profit_drift') }}:
+      <b class="{{ 'pos' if rollup.to_date.profit_drift is not none and rollup.to_date.profit_drift >= -5 else 'neg' }}">
+        {{ fmt(rollup.to_date.profit_drift, 1) ~ '%' if rollup.to_date.profit_drift is not none else '—' }}</b></span>
+    <span>{{ t('td_collections') }}:
+      <b>{{ fmt(rollup.to_date.income_ratio * 100, 0) ~ '%' if rollup.to_date.income_ratio is not none else '—' }}</b></span>
+    <span>{{ t('td_expense') }}:
+      <b>{{ fmt(rollup.to_date.expense_d_pct, 1) ~ '%' if rollup.to_date.expense_d_pct is not none else '—' }}</b>
+      {% if rollup.status.expense != 'none' %}{{ m.budget_badge(rollup.status.expense, t) }}{% endif %}</span>
+  </div>
+  <div class="table-wrap"><table>
+    <thead>
+      <tr>
+        <th rowspan="2" style="vertical-align:bottom">{{ t('period') }}</th>
+        <th colspan="3" style="text-align:center">{{ t('plan') }}</th>
+        <th colspan="3" style="text-align:center">{{ t('fact') }}</th>
+        <th rowspan="2" class="num" style="vertical-align:bottom">{{ t('variance') }}</th>
+        <th colspan="2" style="text-align:center">{{ t('cumulative') }}</th>
+        <th rowspan="2" style="vertical-align:bottom"></th>
+      </tr>
+      <tr>
+        <th class="num">{{ t('income') }}</th><th class="num">{{ t('expense') }}</th><th class="num">{{ t('profit') }}</th>
+        <th class="num">{{ t('income') }}</th><th class="num">{{ t('expense') }}</th><th class="num">{{ t('profit') }}</th>
+        <th class="num">{{ t('plan') }}</th><th class="num">{{ t('fact') }}</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for r in rollup.months %}
+    <tr style="{% if r.is_current %}background:var(--brand-soft);{% elif r.is_future %}opacity:.55;{% endif %}">
+      <td class="nowrap"><b>{{ r.period }}</b></td>
+      <td class="num muted">{{ fmt(r.plan_income) }}</td>
+      <td class="num muted">{{ fmt(r.plan_expense) }}</td>
+      <td class="num muted">{{ fmt(r.plan_profit) }}</td>
+      <td class="num">{{ fmt(r.fact_income) }}</td>
+      <td class="num">{{ fmt(r.fact_expense) }}</td>
+      <td class="num {{ 'pos' if r.fact_profit >= 0 else 'neg' }}">{{ fmt(r.fact_profit) }}</td>
+      <td class="num {{ 'pos' if r.d_profit >= 0 else 'neg' }}">{{ fmt_signed(r.d_profit) }}</td>
+      <td class="num muted">{{ fmt(r.cum_plan_profit) }}</td>
+      <td class="num {{ 'pos' if r.cum_fact_profit >= r.cum_plan_profit else 'neg' }}">{{ fmt(r.cum_fact_profit) }}</td>
+      <td class="nowrap">
+        {% if r.is_current %}<span class="badge badge-warn">{{ t('current_month') }}</span>
+        {% elif r.unplanned %}<span class="badge badge-draft">{{ t('unplanned_month') }}</span>{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+    <tfoot><tr class="total-row">
+      <td>{{ t('total') }}</td>
+      <td class="num">{{ fmt(rollup.totals.plan_income) }}</td>
+      <td class="num">{{ fmt(rollup.totals.plan_expense) }}</td>
+      <td class="num">{{ fmt(rollup.totals.plan_profit) }}</td>
+      <td class="num">{{ fmt(rollup.totals.fact_income) }}</td>
+      <td class="num">{{ fmt(rollup.totals.fact_expense) }}</td>
+      <td class="num {{ 'pos' if rollup.totals.fact_profit >= 0 else 'neg' }}">{{ fmt(rollup.totals.fact_profit) }}</td>
+      <td colspan="4"></td>
+    </tr></tfoot>
+  </table></div>
+  {% else %}
+  <div class="empty">{{ t('monthly_empty') }}</div>
+  {% endif %}
+</div>
+
+{# ── Unassigned actuals → milestone ──────────────────────────────────── #}
+{% if milestones and (unassigned.documents or unassigned.hour_periods) %}
+<div class="card">
+  <div class="card-head"><h2>{{ t('unassigned_actuals') }}</h2>
+    <span class="hint">{{ t('unassigned_hint') }}</span></div>
+  {% if unassigned.hour_periods %}
+  <div class="section-title" style="padding:0 16px">{{ t('unassigned_hours', unassigned.hour_periods|length) }}</div>
+  <div class="table-wrap"><table style="max-width:640px">
+    <thead><tr><th>{{ t('period') }}</th><th class="num">{{ t('hours') }}</th>
+      <th>{{ t('milestone') }}</th></tr></thead>
+    <tbody>
+    {% for hp in unassigned.hour_periods %}
+    <tr>
+      <td><b>{{ hp.period }}</b></td>
+      <td class="num">{{ fmt(hp.hours, 1) }}</td>
+      <td><form method="post" action="/projects/{{ project.id }}/assign-hours" class="btn-row">
+        <input type="hidden" name="period" value="{{ hp.period }}">
+        <select name="phase_id" style="width:auto;min-width:200px">
+          <option value="">—</option>
+          {% for ms in milestones %}<option value="{{ ms.id }}" {% if ms.id == hp.suggested %}selected{% endif %}>{{ ms.name }}</option>{% endfor %}
+        </select>
+        <button class="btn btn-sm">{{ t('assign') }}</button></form></td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% endif %}
+  {% if unassigned.documents %}
+  <div class="section-title" style="padding:0 16px">{{ t('unassigned_documents', unassigned.documents|length) }}</div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>{{ t('date') }}</th><th>{{ t('doc_number') }}</th><th>{{ t('counterparty') }}</th>
+      <th>{{ t('description') }}</th><th class="num">{{ t('total') }}</th>
+      <th>{{ t('milestone') }}</th></tr></thead>
+    <tbody>
+    {% for d in unassigned.documents %}
+    <tr>
+      <td class="nowrap muted">{{ d.date }}</td>
+      <td><a href="/documents/{{ d.id }}">{{ d.number }}</a>
+        <div class="faint" style="font-size:.72rem">{{ t('doc_' ~ d.doc_type) }}</div></td>
+      <td>{{ d.counterparty_name or '—' }}</td>
+      <td class="muted">{{ d.description or '' }}</td>
+      <td class="num">{{ fmt(d.total) }}</td>
+      <td><form method="post" action="/projects/{{ project.id }}/assign-document" class="btn-row">
+        <input type="hidden" name="doc_id" value="{{ d.id }}">
+        <select name="phase_id" style="width:auto;min-width:200px">
+          <option value="">—</option>
+          {% for ms in milestones %}<option value="{{ ms.id }}">{{ ms.name }}</option>{% endfor %}
+        </select>
+        <button class="btn btn-sm">{{ t('assign') }}</button></form></td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% endif %}
+</div>
+{% endif %}
+
 {# ── Milestone modal with its employee-hours grid ─────────────────────── #}
 {% call m.modal('msModal', t('milestone'), '/projects/' ~ project.id ~ '/milestone', t,
                 size='820px') %}
   <input type="hidden" name="has_staff_grid" value="1">
   <div class="grid grid-2">
     {{ m.text_field('name', t('name'), required=True) }}
+    {{ m.text_field('code', t('code')) }}
+    {{ m.text_field('sort_order', t('sort_order'), type='number', value='100') }}
     <div class="field"><label>{{ t('work_type') }}</label>
       <select name="work_type" data-reset><option value="">—</option>
         {% for w in work_types %}<option value="{{ w.code }}">{{ w.label_uz }}</option>{% endfor %}

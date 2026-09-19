@@ -26,13 +26,15 @@
     <div class="card-head"><h2>{{ t('exchange_rate') }}</h2>
       <span class="muted">1 USD = {{ fmt(usd_rate) }}</span></div>
     <div class="card-body">
-      <form method="post" action="/settings/rate" class="filters">
+      <form method="post" action="/settings/rate" class="filters" id="rateForm">
         <div class="field"><label>{{ t('date') }}</label>
           <input type="date" name="date" value="{{ today }}"></div>
         <div class="field"><label>{{ t('rate') }}</label>
           <input name="rate" type="number" step="0.01"></div>
+        <button type="button" class="btn" onclick="fetchCbu()">{{ t('fetch_cbu') }}</button>
         <button class="btn btn-primary">{{ t('save') }}</button>
       </form>
+      <p class="hint" id="cbuNote">cbu.uz</p>
     </div>
     <div class="card-body tight" style="max-height:280px;overflow-y:auto"><table>
       <thead><tr><th>{{ t('date') }}</th><th class="num">{{ t('rate') }}</th></tr></thead>
@@ -45,6 +47,7 @@
   </div>
 </div>
 
+{% if current_user.can('admin') %}
 <div class="card">
   <div class="card-head"><h2>{{ t('nav_users') }}</h2>
     <button class="btn btn-primary" onclick="openModal('userModal')">+ {{ t('new') }}</button></div>
@@ -62,6 +65,7 @@
     </tbody>
   </table></div>
 </div>
+{% endif %}
 
 <div class="card">
   <div class="card-head"><h2>{{ t('type') }}</h2>
@@ -84,6 +88,7 @@
   </table></div></div>
 </div>
 
+{% if current_user.can('admin') %}
 {% call m.modal('userModal', t('nav_users'), '/settings/user', t) %}
   <div class="grid grid-2">
     {{ m.text_field('username', t('username'), required=True) }}
@@ -97,6 +102,25 @@
   <div class="checkbox"><input type="checkbox" name="is_active" id="uAct" value="1" checked>
     <label for="uAct">{{ t('project_active') }}</label></div>
 {% endcall %}
+{% endif %}
+
+<script>
+/* Pull the Central Bank rate for the chosen date into the rate box; the user
+   still presses Save, so an outage only leaves the box empty. */
+function fetchCbu(){
+  const f = document.getElementById('rateForm');
+  const note = document.getElementById('cbuNote');
+  const d = f.querySelector('[name=date]').value;
+  note.textContent = '…';
+  fetch('/settings/fetch-rate?date=' + encodeURIComponent(d))
+    .then(r => r.json())
+    .then(res => {
+      if (res.rate) { f.querySelector('[name=rate]').value = res.rate; note.textContent = 'cbu.uz ' + (res.date || d) + ': ' + res.rate; }
+      else note.textContent = '{{ t("fetch_cbu_failed") }}: ' + (res.error || '');
+    })
+    .catch(() => { note.textContent = '{{ t("fetch_cbu_failed") }}'; });
+}
+</script>
 
 {% call m.modal('lookupModal', t('type'), '/settings/lookup', t) %}
   <div class="grid grid-2">

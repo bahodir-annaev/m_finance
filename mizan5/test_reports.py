@@ -229,7 +229,7 @@ check('period list reports entry counts',
       any(p['code'] == '2026-02' and p['entries'] > 0 for p in periods))
 
 print('\n=== Reopen ===')
-reopen_period('2026-02')
+reopen_period('2026-02', allow_hard=True)
 check('period is open again', get_period_status('2026-02') == 'open')
 check('trial balance survives the reopen', get_trial_balance()['is_balanced'])
 check('the closing entry was reversed',

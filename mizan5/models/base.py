@@ -10,6 +10,7 @@ an unbalanced entry can never reach the database through generic CRUD.
 import os
 import re
 import sqlite3
+from calendar import monthrange
 from datetime import datetime
 
 DB_PATH = os.environ.get('MIZAN5_DB') or os.path.join(
@@ -68,6 +69,12 @@ def today_str():
 def period_of(date_str):
     """'YYYY-MM-DD' → 'YYYY-MM'."""
     return (date_str or '')[:7]
+
+
+def period_end(period):
+    """'YYYY-MM' → 'YYYY-MM-<last day>'. The as-of date for costing a period."""
+    y, m = int(period[:4]), int(period[5:7])
+    return f'{y:04d}-{m:02d}-{monthrange(y, m)[1]:02d}'
 
 
 # ========== Settings & rates ==========
@@ -160,7 +167,7 @@ _ALLOWED_TABLES = [
     'counterparties', 'projects', 'project_phases', 'staff', 'salary_history',
     'equipment', 'licenses', 'overhead_budget', 'exchange_rates', 'loans',
     'accounts', 'work_types', 'departments', 'staff_roles', 'payment_types',
-    'project_hours',
+    'project_hours', 'asset_classes', 'bank_accounts',
 ]
 
 _DELETE_ALLOWED = [
@@ -315,6 +322,64 @@ def ensure_fiscal_period(conn, period_code):
         " VALUES (?,?,?,'open')", (period_code, start, end))
 
 
+def create_fiscal_period(code, notes=None):
+    """Open a period by hand (YYYY-MM). Returns (ok, error) with error in
+    (None, 'bad_code', 'exists')."""
+    code = (code or '').strip()
+    if len(code) != 7 or code[4] != '-':
+        return False, 'bad_code'
+    try:
+        y, m = int(code[:4]), int(code[5:7])
+        if not 1 <= m <= 12:
+            return False, 'bad_code'
+    except ValueError:
+        return False, 'bad_code'
+    conn = get_db()
+    try:
+        if conn.execute("SELECT 1 FROM fiscal_periods WHERE code=?", (code,)).fetchone():
+            return False, 'exists'
+        ensure_fiscal_period(conn, code)
+        if notes:
+            conn.execute("UPDATE fiscal_periods SET notes=? WHERE code=?", (notes.strip(), code))
+        _write_audit(conn, 'create', 'fiscal_periods', None, context=f'period {code} created')
+        conn.commit()
+        return True, None
+    finally:
+        conn.close()
+
+
+def delete_fiscal_period(code):
+    """Remove an OPEN period that has no journal entries. Returns (ok, error)
+    with error in (None, 'not_found', 'not_open', 'has_entries')."""
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT status FROM fiscal_periods WHERE code=?", (code,)).fetchone()
+        if not row:
+            return False, 'not_found'
+        if row['status'] != 'open':
+            return False, 'not_open'
+        n = conn.execute("SELECT COUNT(*) FROM journal_entries WHERE period=?",
+                         (code,)).fetchone()[0]
+        if n:
+            return False, 'has_entries'
+        conn.execute("DELETE FROM fiscal_periods WHERE code=?", (code,))
+        _write_audit(conn, 'delete', 'fiscal_periods', None, context=f'period {code} deleted')
+        conn.commit()
+        return True, None
+    finally:
+        conn.close()
+
+
+def set_period_notes(code, notes):
+    conn = get_db()
+    try:
+        conn.execute("UPDATE fiscal_periods SET notes=? WHERE code=?",
+                     ((notes or '').strip() or None, code))
+        conn.commit()
+    finally:
+        conn.close()
+
+
 # ========== Schema ==========
 
 SCHEMA = [
@@ -387,6 +452,7 @@ SCHEMA = [
         project_id INTEGER REFERENCES projects(id),
         phase_id INTEGER REFERENCES project_phases(id),
         staff_id INTEGER REFERENCES staff(id),
+        bank_account_id INTEGER REFERENCES bank_accounts(id),
         description TEXT,
         CHECK (debit = 0 OR credit = 0),
         CHECK (debit + credit > 0),
@@ -410,6 +476,7 @@ SCHEMA = [
         project_id INTEGER REFERENCES projects(id),
         phase_id INTEGER REFERENCES project_phases(id),
         loan_id INTEGER REFERENCES loans(id),
+        responsible_id INTEGER REFERENCES staff(id),
         contract_ref TEXT,
         external_number TEXT,
         currency TEXT NOT NULL DEFAULT 'UZS',
@@ -420,6 +487,7 @@ SCHEMA = [
         total_cur REAL,
         payment_method TEXT,
         bank_account TEXT,
+        bank_account_id INTEGER REFERENCES bank_accounts(id),
         due_date TEXT,
         cash_purpose TEXT,
         description TEXT, notes TEXT,
@@ -475,6 +543,22 @@ SCHEMA = [
         country TEXT, default_currency TEXT DEFAULT 'UZS',
         bank_details TEXT, address TEXT, phone TEXT,
         is_active INTEGER DEFAULT 1, notes TEXT,
+        created_at TEXT DEFAULT (datetime('now')), updated_at TEXT
+    )''',
+    # The firm's own bank accounts — the 1С «Банковские счета» subconto. A
+    # ledger account whose accounts.subconto = 'bank_account' is subdivided
+    # into these rows on journal_lines.bank_account_id; the ledger code itself
+    # stays single, so nothing that sums 5xxx by account changes.
+    '''CREATE TABLE IF NOT EXISTS bank_accounts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        account_id INTEGER NOT NULL REFERENCES accounts(id),
+        name TEXT NOT NULL,
+        account_number TEXT,
+        bank_name TEXT, mfo TEXT,
+        currency TEXT NOT NULL DEFAULT 'UZS',
+        is_default INTEGER DEFAULT 0,
+        is_active INTEGER DEFAULT 1,
+        notes TEXT,
         created_at TEXT DEFAULT (datetime('now')), updated_at TEXT
     )''',
     '''CREATE TABLE IF NOT EXISTS counterparty_aliases (
@@ -567,10 +651,17 @@ SCHEMA = [
         rate_snapshot_at TEXT, rate_snapshot_source TEXT,
         UNIQUE(project_id, staff_id, period)
     )''',
+    # `kind` and `asset_class` answer two different questions and must not be
+    # merged: kind is WHO BEARS THE COST (personal -> one employee's rate,
+    # general -> spread across production staff), asset_class is WHAT THE THING
+    # IS (which useful life it gets and which pair of ledger accounts it lands
+    # on). A desk and a laptop can both be 'personal'; they are never the same
+    # asset class.
     '''CREATE TABLE IF NOT EXISTS equipment (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
         kind TEXT NOT NULL CHECK(kind IN ('personal','general')),
+        asset_class TEXT NOT NULL DEFAULT 'computer',
         staff_id INTEGER REFERENCES staff(id),
         quantity INTEGER NOT NULL DEFAULT 1,
         price REAL NOT NULL DEFAULT 0,
@@ -578,6 +669,18 @@ SCHEMA = [
         purchase_date TEXT,
         purchase_doc_id INTEGER REFERENCES documents(id),
         is_active INTEGER DEFAULT 1, updated_at TEXT
+    )''',
+    # Asset classes carry a DEFAULT lifespan, not the authoritative one: the
+    # per-row equipment.lifespan_months always wins, so editing a class default
+    # can never silently re-depreciate assets already on the books. The default
+    # pre-fills new rows, and depreciation_schedule() reports rows that differ
+    # from it so the drift is visible rather than lost.
+    '''CREATE TABLE IF NOT EXISTS asset_classes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT UNIQUE NOT NULL,
+        label_uz TEXT NOT NULL, label_en TEXT, label_ru TEXT,
+        default_lifespan_months INTEGER NOT NULL DEFAULT 36,
+        asset_account TEXT, accum_account TEXT,
+        is_active INTEGER DEFAULT 1, sort_order INTEGER DEFAULT 100
     )''',
     '''CREATE TABLE IF NOT EXISTS licenses (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -676,6 +779,7 @@ INDICES = [
     "CREATE INDEX IF NOT EXISTS idx_jl_project ON journal_lines(project_id)",
     "CREATE INDEX IF NOT EXISTS idx_jl_counterparty ON journal_lines(counterparty_id)",
     "CREATE INDEX IF NOT EXISTS idx_jl_staff ON journal_lines(staff_id)",
+    "CREATE INDEX IF NOT EXISTS idx_jl_bank_account ON journal_lines(bank_account_id)",
     "CREATE INDEX IF NOT EXISTS idx_je_date ON journal_entries(date)",
     "CREATE INDEX IF NOT EXISTS idx_je_period ON journal_entries(period)",
     "CREATE INDEX IF NOT EXISTS idx_je_document ON journal_entries(document_id)",
@@ -703,12 +807,33 @@ INDICES = [
 # (code, name_ru, name_uz, kind, subconto, cost_pool, val_flag, sort)
 ACCOUNT_SEED = [
     ('0000', 'Вспомогательный счет', 'Yordamchi hisob', 'T', None, None, 0, 1),
+    # Fixed assets, paired with their accumulated-depreciation contra account.
+    # One pair per asset class (see ASSET_CLASS_SEED). Depreciation credits the
+    # pair member, never the 0200 parent, so the balance sheet can show what is
+    # worn out by class instead of one undifferentiated lump.
+    ('0120.1', 'Здания', 'Binolar', 'A', None, None, 0, 6),
+    ('0130', 'Машины и оборудование', 'Mashina va uskunalar', 'A', None, None, 0, 7),
+    ('0140', 'Мебель и офисное оборудование', 'Mebel va ofis jihozlari',
+     'A', None, None, 0, 8),
     ('0150', 'Компьютерное оборудование и вычислительная техника',
      'Kompyuter jihozlari', 'A', None, None, 0, 10),
+    ('0160', 'Транспортные средства', 'Transport vositalari', 'A', None, None, 0, 11),
+    ('0190', 'Прочие основные средства в организации', 'Boshqa asosiy vositalar',
+     'A', None, None, 0, 12),
+    # 0200 stays as the fallback for a class with no accum_account configured.
     ('0200', 'Амортизация основных средств', 'Asosiy vositalar amortizatsiyasi',
      'KA', None, None, 0, 20),
-    ('0230', 'Амортизация машин и оборудования', 'Jihozlar amortizatsiyasi',
-     'KA', None, None, 0, 21),
+    ('0220.1', 'Амортизация зданий', 'Binolar amortizatsiyasi', 'KA', None, None, 0, 20.5),
+    ('0230', 'Амортизация машин и оборудования',
+     'Mashina va uskunalar amortizatsiyasi', 'KA', None, None, 0, 21),
+    ('0240', 'Амортизация мебели и офисного оборудования',
+     'Mebel va ofis jihozlari amortizatsiyasi', 'KA', None, None, 0, 22),
+    ('0250', 'Амортизация компьютерного оборудования и вычислительной техники',
+     'Kompyuter jihozlari amortizatsiyasi', 'KA', None, None, 0, 23),
+    ('0260', 'Амортизация транспортных средств',
+     'Transport vositalari amortizatsiyasi', 'KA', None, None, 0, 24),
+    ('0290', 'Амортизация прочих ОС', 'Boshqa asosiy vositalar amortizatsiyasi',
+     'KA', None, None, 0, 25),
     ('0410', 'Патенты, лицензии, ноу-хау', 'Patentlar, litsenziyalar',
      'A', None, None, 0, 30),
     ('2010', 'Основное производство', 'Asosiy ishlab chiqarish',
@@ -747,6 +872,11 @@ ACCOUNT_SEED = [
      'Taqsimlanmagan foyda', 'P', None, None, 0, 140),
     ('9030', 'Доходы от выполнения работ, оказания услуг',
      'Ish va xizmatlardan daromad', 'T', 'project', None, 0, 150),
+    # Where an unattributed cash receipt lands. Deliberately outside the pool:
+    # the pool nets debits against credits, so income booked to an 'indirect'
+    # account would subtract itself from overhead and lower every rate.
+    ('9390', 'Прочие операционные доходы', 'Boshqa operatsion daromadlar',
+     'T', None, None, 0, 155),
     ('9130', 'Себестоимость выполненных работ, оказанных услуг',
      'Bajarilgan ishlar tannarxi', 'T', 'project', 'excluded', 0, 160),
     ('9410', 'Расходы на продажу', 'Sotish xarajatlari', 'T', None, 'indirect', 0, 170),
@@ -754,12 +884,20 @@ ACCOUNT_SEED = [
      'T', None, 'indirect', 0, 171),
     ('9430', 'Прочие операционные расходы', 'Boshqa operatsion xarajatlar',
      'T', None, 'indirect', 0, 172),
-    # Depreciation gets its own child of 9420 and is deliberately 'excluded',
-    # not 'indirect'. The equipment register already charges these assets in
-    # calculate_hourly_rate(); if this account joined the overhead pool the
-    # ledger would charge them a second time and every rate would inflate.
+    # ── The children of 9420 that must never join the overhead pool ──────
+    # THE RULE: an account may not carry cost_pool='indirect' if the same cost
+    # is already modeled by a register that calculate_hourly_rate() reads.
+    # Each of these three is a real administrative expense in the P&L, but the
+    # rate engine already charges it from its own register — the equipment
+    # register, the staff/salary register, the license register. Leaving them
+    # on 9420 would let the ledger charge them a second time and inflate every
+    # rate. posting.assert_not_pooled() enforces this at post time.
     ('9420.1', 'Амортизация основных средств', 'Asosiy vositalar amortizatsiyasi',
      'T', None, 'excluded', 0, 1715),
+    ('9420.2', 'Административный персонал', 'Ma\'muriy xodimlar ish haqi',
+     'T', None, 'excluded', 0, 1716),
+    ('9420.3', 'Лицензии и программное обеспечение',
+     'Litsenziyalar va dasturiy ta\'minot', 'T', None, 'excluded', 0, 1717),
     ('9530', 'Доходы в виде процентов', 'Foiz daromadlari', 'T', None, None, 0, 180),
     ('9540', 'Доходы в виде курсовых разниц', 'Kurs farqi daromadi',
      'T', None, 'excluded', 0, 181),
@@ -769,6 +907,12 @@ ACCOUNT_SEED = [
     ('9910', 'Финансовый результат по деятельности с основной системой налогообложения',
      'Moliyaviy natija', 'T', None, None, 0, 200),
 ]
+
+# Accounts whose cost the man-hour rate engine already charges from a register
+# of its own, and which therefore must stay out of the overhead pool. Kept as
+# one list so the seed correction, the posting guard and the tests all agree on
+# what "register-modeled" means.
+REGISTER_MODELED_CODES = ('9420.1', '9420.2', '9420.3')
 
 # purpose → account code. Posting rules never name a code directly; they ask
 # for a purpose, so a firm on a different chart only edits this mapping.
@@ -791,7 +935,10 @@ ACCOUNT_MAP_SEED = {
     'cogs': '9130',
     'selling_expense': '9410',
     'admin_expense': '9420',
+    'admin_salary_expense': '9420.2',
+    'license_expense': '9420.3',
     'other_opex': '9430',
+    'other_income': '9390',
     'interest_income': '9530',
     'interest_expense': '9610',
     'fx_gain': '9540',
@@ -870,6 +1017,35 @@ STAFF_ROLE_SEED = [
     ('buxgalter', 'Buxgalter', 'Accountant', 'Бухгалтер', 70),
 ]
 
+# Asset classes: what a thing IS, which decides its useful life and which pair
+# of ledger accounts it lands on. (code, uz, en, ru, months, asset, accum, sort)
+#
+# Every class ships at 36 months — the value the whole register was imported
+# with, from a source spreadsheet that had a single depreciation column. That
+# is deliberately NOT changed here: re-lifing an asset moves every man-hour
+# rate and every price quoted from one, so it is the firm's decision, made on
+# /staff/equipment, not a silent side effect of adding classes.
+#
+# For reference when setting them, the Tax Code (Art. 306 §30) ceilings are
+# 20%/yr for computers and peripherals (60 months) and 15%/yr for furniture and
+# office equipment (80 months); 36 months is 33.3%/yr, above both. Those are
+# tax ceilings — under NSBU No.5 the book life is the firm's own estimate of
+# useful life, which is why this is a setting and not a constant.
+ASSET_CLASS_SEED = [
+    ('computer', 'Kompyuter texnikasi', 'Computer equipment',
+     'Компьютерное оборудование', 36, '0150', '0250', 10),
+    ('furniture', 'Mebel va ofis jihozlari', 'Furniture & office equipment',
+     'Мебель и офисное оборудование', 36, '0140', '0240', 20),
+    ('machinery', 'Mashina va uskunalar', 'Machinery & equipment',
+     'Машины и оборудование', 36, '0130', '0230', 30),
+    ('vehicle', 'Transport vositalari', 'Vehicles',
+     'Транспортные средства', 36, '0160', '0260', 40),
+    ('building', 'Bino va inshootlar', 'Buildings & structures',
+     'Здания и сооружения', 36, '0120.1', '0220.1', 50),
+    ('other', 'Boshqa asosiy vositalar', 'Other fixed assets',
+     'Прочие основные средства', 36, '0190', '0290', 60),
+]
+
 OVERHEAD_SEED = [
     ('Ofis ijarasi', 25000000),
     ("Kommunal to'lovlar", 5000000),
@@ -878,6 +1054,25 @@ OVERHEAD_SEED = [
     ('Transport', 3000000),
     ('Boshqa xarajatlar', 4000000),
 ]
+
+
+# Columns added after a table first shipped. CREATE TABLE IF NOT EXISTS does
+# nothing for an existing table, so each is also applied here as an
+# ALTER TABLE on databases created before it. Additive only — SQLite cannot
+# add a CHECK or change a constraint this way.
+# (table, column, column DDL)
+MIGRATED_COLUMNS = [
+    ('journal_lines', 'bank_account_id', 'INTEGER REFERENCES bank_accounts(id)'),
+    ('documents', 'bank_account_id', 'INTEGER REFERENCES bank_accounts(id)'),
+    ('documents', 'responsible_id', 'INTEGER REFERENCES staff(id)'),
+]
+
+
+def _migrate_columns(c):
+    for table, column, ddl in MIGRATED_COLUMNS:
+        cols = [d[1] for d in c.execute(f"PRAGMA table_info({table})").fetchall()]
+        if column not in cols:
+            c.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
 
 
 def init_db():
@@ -891,6 +1086,7 @@ def init_db():
     conn.execute("PRAGMA foreign_keys = OFF")
     for stmt in SCHEMA:
         c.execute(stmt)
+    _migrate_columns(c)
     for stmt in INDICES:
         c.execute(stmt)
     conn.commit()
@@ -945,12 +1141,13 @@ def _seed_accounts(c):
             c.execute("INSERT OR IGNORE INTO account_map (purpose, account_id) VALUES (?,?)",
                       (purpose, row[0]))
     # The seed above is INSERT OR IGNORE, so an install where someone created
-    # 9420.1 by hand could have it sitting in the overhead pool. That would make
-    # every depreciated asset count twice — once from the equipment register and
-    # once from the pool. Correct it, but only from 'indirect': a deliberate NULL
-    # is left alone.
-    c.execute("UPDATE accounts SET cost_pool='excluded'"
-              " WHERE code=? AND cost_pool='indirect'", ('9420.1',))
+    # these by hand could have them sitting in the overhead pool. That would
+    # make the cost count twice — once from its register and once from the
+    # pool. Correct them, but only from 'indirect': a deliberate NULL is left
+    # alone. See the comment on REGISTER_MODELED_CODES for the rule.
+    for code in REGISTER_MODELED_CODES:
+        c.execute("UPDATE accounts SET cost_pool='excluded'"
+                  " WHERE code=? AND cost_pool='indirect'", (code,))
 
 
 def _seed_lookups(c):
@@ -966,11 +1163,49 @@ def _seed_lookups(c):
         c.executemany(
             f"INSERT OR IGNORE INTO {table} (code, label_uz, label_en, label_ru, sort_order)"
             f" VALUES (?,?,?,?,?)", rows)
+    # INSERT OR IGNORE per row rather than skip-if-any: a class added to the
+    # seed later must still appear on an existing install, and an edited
+    # default_lifespan_months must survive — that value is the firm's setting.
+    c.executemany(
+        "INSERT OR IGNORE INTO asset_classes (code, label_uz, label_en, label_ru,"
+        " default_lifespan_months, asset_account, accum_account, sort_order)"
+        " VALUES (?,?,?,?,?,?,?,?)", ASSET_CLASS_SEED)
+
+
+def asset_class_map(conn=None, active_only=False):
+    """{code: asset class row} — the useful life and account pair per class.
+
+    active_only defaults to False here, unlike get_lookup(): a deactivated
+    class must still resolve for assets already recorded against it, or their
+    depreciation would silently lose its accounts.
+    """
+    own = conn is None
+    conn = conn or get_db()
+    try:
+        where = " WHERE is_active=1" if active_only else ""
+        rows = conn.execute(
+            f"SELECT * FROM asset_classes{where} ORDER BY sort_order, code").fetchall()
+        return {r['code']: dict(r) for r in rows}
+    finally:
+        if own:
+            conn.close()
+
+
+def default_lifespan_for(asset_class, conn=None):
+    """The class default, or 36 if the class is unknown — never 0.
+
+    A zero would make the monthly charge a division by zero in the rate engine
+    and NULLIF() it away in the SQL, silently dropping the asset from costs.
+    """
+    row = asset_class_map(conn).get(asset_class)
+    months = int((row or {}).get('default_lifespan_months') or 0)
+    return months if months > 0 else 36
 
 
 def get_lookup(table, active_only=True):
     """Rows of a lookup table, ordered for a <select>."""
-    if table not in ('payment_types', 'work_types', 'departments', 'staff_roles'):
+    if table not in ('payment_types', 'work_types', 'departments', 'staff_roles',
+                     'asset_classes'):
         return []
     conn = get_db()
     where = " WHERE is_active=1" if active_only else ""

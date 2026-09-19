@@ -95,6 +95,7 @@
       <select name="payment_method" style="width:auto">
         {% for p in payment_types %}<option value="{{ p.code }}">{{ p.label_uz }}</option>{% endfor %}
       </select>
+      {% if bank_accounts %}{{ m.bank_account_select(bank_accounts, t, attrs='style="width:auto"') }}{% endif %}
       <button class="btn btn-primary">{{ t('doc_cash_out') }}</button>
     </form>
   </div>

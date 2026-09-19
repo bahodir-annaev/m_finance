@@ -2,54 +2,105 @@
 {% import "_macros.html" as m %}
 {% block heading %}{{ t('nav_loans') }}{% endblock %}
 
+{% macro loan_table(rows, side) %}
+<div class="table-wrap"><table>
+  <thead><tr><th>{{ t('counterparty') }}</th>
+    <th class="num">{{ t('amount') }}</th><th class="num">%</th>
+    <th>{{ t('start_date') }}</th><th>{{ t('due_date') }}</th>
+    <th class="num">{{ t('principal_paid') }}</th><th class="num">{{ t('interest_paid') }}</th>
+    <th class="num">{{ t('balance') }}</th><th>{{ t('status') }}</th>
+    <th style="width:1%">{{ t('actions') }}</th></tr></thead>
+  <tbody>
+    {% for r in rows %}
+    <tr>
+      <td>{{ r.counterparty_name or '—' }}
+        {% if r.description %}<div class="faint" style="font-size:.75rem">{{ r.description }}</div>{% endif %}
+        <a href="#" class="faint" style="font-size:.72rem" onclick="toggleHist({{ r.id }});return false">
+          {{ t('payment_history') }} ({{ r.documents|length }})</a></td>
+      <td class="num">{{ fmt(r.total_amount) }}
+        {% if r.currency != 'UZS' %}<span class="faint">{{ r.currency }}</span>{% endif %}</td>
+      <td class="num muted">{{ fmt(r.interest_rate, 1) }}</td>
+      <td class="nowrap muted">{{ r.issue_date }}</td>
+      <td class="nowrap muted">{{ r.due_date or '—' }}
+        {% if r.is_overdue %}<span class="badge badge-bad">{{ t('overdue') }}</span>{% endif %}</td>
+      <td class="num">{{ fmt(r.principal_paid) }}</td>
+      <td class="num muted">{{ fmt(r.interest_paid) }}</td>
+      <td class="num"><b>{{ fmt(r.ledger_balance) }}</b>
+        {% if not r.issued %}<div class="faint" style="font-size:.7rem">{{ t('not_booked') }}</div>{% endif %}</td>
+      <td>{{ m.status_badge(r.status, t) }}</td>
+      <td class="nowrap">
+        {% if r.status == 'ochiq' %}
+        <button class="btn btn-sm" onclick="openPayment({{ r.id }}, '{{ r.counterparty_name or '' }}')">
+          {{ t('repayment') }}</button>
+        {% endif %}
+        {{ m.edit_btn('loanModal', {'id': r.id, 'loan_type': r.loan_type,
+            'counterparty_id': r.counterparty_id, 'description': r.description,
+            'total_amount': r.total_amount, 'currency': r.currency,
+            'interest_rate': r.interest_rate, 'term': r.term, 'issue_date': r.issue_date,
+            'due_date': r.due_date, 'status': r.status, 'notes': r.notes}, t) }}
+      </td>
+    </tr>
+    <tr id="hist{{ r.id }}" hidden>
+      <td colspan="10" style="background:#f8fafc;padding:6px 16px 10px">
+        <table style="font-size:.8rem;max-width:760px">
+          <thead><tr><th>{{ t('date') }}</th><th>{{ t('doc_number') }}</th><th>{{ t('type') }}</th>
+            <th>{{ t('payment_method') }}</th><th class="num">{{ t('principal') }}</th>
+            <th class="num">{{ t('interest') }}</th><th>{{ t('status') }}</th></tr></thead>
+          <tbody>
+            {% for d in r.documents %}
+            <tr><td class="nowrap">{{ d.date }}</td>
+              <td><a href="/documents/{{ d.id }}">{{ d.number }}</a></td>
+              <td class="muted">{{ t('loan_issue') if d.kind == 'issue' else t('repayment') }}</td>
+              <td class="muted">{{ d.payment_method or '—' }}</td>
+              <td class="num">{{ fmt(d.principal) }}</td>
+              <td class="num muted">{{ fmt(d.interest) }}</td>
+              <td>{{ m.status_badge(d.status, t) }}</td></tr>
+            {% else %}<tr><td colspan="7" class="muted">{{ t('no_records') }}</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </td>
+    </tr>
+    {% else %}{{ m.empty_row(10, t) }}{% endfor %}
+  </tbody>
+</table></div>
+{% endmacro %}
+
 {% block content %}
 <div class="tiles">
-  <div class="tile bad"><div class="label">{{ t('liabilities') }} (olgan)</div>
-    <div class="value">{{ fmt(borrowed) }}</div><div class="sub">6820 / 7820</div></div>
-  <div class="tile ok"><div class="label">{{ t('assets') }} (bergan)</div>
-    <div class="value">{{ fmt(lent) }}</div><div class="sub">5820</div></div>
+  <div class="tile bad"><div class="label">{{ t('loans_taken') }} — {{ t('outstanding') }}</div>
+    <div class="value">{{ fmt(summary.olgan.outstanding) }}</div>
+    <div class="sub">{{ t('period_open') }}: {{ summary.olgan.open }} · {{ t('close') }}: {{ summary.olgan.closed }}
+      {% for cur, v in summary.olgan.by_currency.items() if cur != 'UZS' %} · {{ cur }} {{ fmt(v) }}{% endfor %}</div></div>
+  <div class="tile ok"><div class="label">{{ t('loans_given') }} — {{ t('outstanding') }}</div>
+    <div class="value">{{ fmt(summary.bergan.outstanding) }}</div>
+    <div class="sub">{{ t('period_open') }}: {{ summary.bergan.open }} · {{ t('close') }}: {{ summary.bergan.closed }}
+      {% for cur, v in summary.bergan.by_currency.items() if cur != 'UZS' %} · {{ cur }} {{ fmt(v) }}{% endfor %}</div></div>
+  <div class="tile"><div class="label">{{ t('liabilities') }} 6820 / 7820</div>
+    <div class="value">{{ fmt(borrowed) }}</div>
+    <div class="sub">{{ t('assets') }} 5820: {{ fmt(lent) }}</div></div>
+  <div class="tile {% if summary.olgan.overdue or summary.bergan.overdue %}warn{% endif %}">
+    <div class="label">{{ t('overdue') }}</div>
+    <div class="value">{{ summary.olgan.overdue + summary.bergan.overdue }}</div>
+    <div class="sub">{{ t('due_date') }}</div></div>
 </div>
 
 <div class="card">
-  <div class="card-head"><h2>{{ t('nav_loans') }}</h2>
+  <div class="card-head"><h2>{{ t('loans_taken') }} (olgan)</h2>
     <button class="btn btn-primary" onclick="openModal('loanModal')">+ {{ t('new') }}</button></div>
-  <div class="table-wrap"><table>
-    <thead><tr><th>{{ t('type') }}</th><th>{{ t('counterparty') }}</th>
-      <th class="num">{{ t('amount') }}</th><th class="num">%</th>
-      <th>{{ t('start_date') }}</th><th>{{ t('due_date') }}</th>
-      <th class="num">{{ t('balance') }}</th><th>{{ t('status') }}</th>
-      <th style="width:1%">{{ t('actions') }}</th></tr></thead>
-    <tbody>
-      {% for r in rows %}
-      <tr>
-        <td><span class="badge {% if r.loan_type=='olgan' %}badge-warn{% else %}badge-info{% endif %}">
-          {{ r.loan_type }}</span></td>
-        <td>{{ r.counterparty_name or '—' }}
-          {% if r.description %}<div class="faint" style="font-size:.75rem">{{ r.description }}</div>{% endif %}</td>
-        <td class="num">{{ fmt(r.total_amount) }}
-          {% if r.currency != 'UZS' %}<span class="faint">{{ r.currency }}</span>{% endif %}</td>
-        <td class="num muted">{{ fmt(r.interest_rate, 1) }}</td>
-        <td class="nowrap muted">{{ r.issue_date }}</td>
-        <td class="nowrap muted">{{ r.due_date or '—' }}</td>
-        <td class="num"><b>{{ fmt(r.ledger_balance) }}</b></td>
-        <td>{{ m.status_badge(r.status, t) }}</td>
-        <td>
-          <button class="btn btn-sm" onclick="openPayment({{ r.id }}, '{{ r.counterparty_name or '' }}')">
-            {{ t('amount') }}</button>
-          {{ m.edit_btn('loanModal', r, t) }}
-        </td>
-      </tr>
-      {% else %}{{ m.empty_row(9, t) }}{% endfor %}
-    </tbody>
-  </table></div>
+  {{ loan_table(taken, 'olgan') }}
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>{{ t('loans_given') }} (bergan)</h2></div>
+  {{ loan_table(given, 'bergan') }}
 </div>
 
 {% call m.modal('loanModal', t('doc_loan'), '/loans/save', t) %}
   <div class="grid grid-2">
     <div class="field"><label>{{ t('type') }}</label>
       <select name="loan_type" data-reset>
-        <option value="olgan">olgan — {{ t('liabilities') }}</option>
-        <option value="bergan">bergan — {{ t('assets') }}</option></select></div>
+        <option value="olgan">olgan — {{ t('loans_taken') }}</option>
+        <option value="bergan">bergan — {{ t('loans_given') }}</option></select></div>
     <div class="field"><label>{{ t('counterparty') }}</label>
       <select name="counterparty_id" data-reset><option value="">—</option>
         {% for c in counterparties %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
@@ -68,18 +119,21 @@
       <select name="payment_method" data-reset>
         {% for p in payment_types %}<option value="{{ p.code }}">{{ p.label_uz }}</option>{% endfor %}
       </select></div>
+    {% if bank_accounts %}{{ m.bank_account_select(bank_accounts, t) }}{% endif %}
     <div class="field"><label>{{ t('status') }}</label>
       <select name="status" data-reset><option value="ochiq">{{ t('period_open') }}</option>
-        <option value="yopilgan">{{ t('close') }}</option></select></div>
+        <option value="yopilgan">{{ t('close') }}</option></select>
+      <div class="hint">{{ t('loan_autoclose_hint') }}</div></div>
   </div>
   {{ m.text_field('description', t('description')) }}
+  {{ m.text_field('notes', t('notes')) }}
   <div class="checkbox"><input type="checkbox" name="post_now" id="loanPost" value="1" checked>
     <label for="loanPost">{{ t('post') }}</label></div>
 {% endcall %}
 
 <dialog id="payModal">
   <form method="post" id="payForm">
-    <div class="modal-head"><h3>{{ t('doc_loan') }} — {{ t('amount') }}</h3>
+    <div class="modal-head"><h3>{{ t('doc_loan') }} — {{ t('repayment') }}</h3>
       <button type="button" class="modal-close" onclick="closeModal('payModal')">&times;</button></div>
     <div class="modal-body">
       <p class="muted" id="payWho"></p>
@@ -90,12 +144,13 @@
           <select name="payment_method">
             {% for p in payment_types %}<option value="{{ p.code }}">{{ p.label_uz }}</option>{% endfor %}
           </select></div>
-        <div class="field"><label>{{ t('amount') }} (asosiy)</label>
+        {% if bank_accounts %}{{ m.bank_account_select(bank_accounts, t) }}{% endif %}
+        <div class="field"><label>{{ t('principal') }}</label>
           <input name="principal" type="number" step="1000"></div>
-        <div class="field"><label>{{ t('amount') }} (foiz)</label>
+        <div class="field"><label>{{ t('interest') }}</label>
           <input name="interest" type="number" step="1000"></div>
       </div>
-      <p class="hint">6820/7820/5820 + 9610/9530</p>
+      <p class="hint">6820/7820/5820 + 9610/9530 · {{ t('loan_autoclose_hint') }}</p>
     </div>
     <div class="modal-foot">
       <button type="button" class="btn" onclick="closeModal('payModal')">{{ t('cancel') }}</button>
@@ -109,6 +164,10 @@ function openPayment(loanId, name){
   document.getElementById('payForm').action = '/loans/' + loanId + '/payment';
   document.getElementById('payWho').textContent = name;
   openModal('payModal');
+}
+function toggleHist(id){
+  const row = document.getElementById('hist' + id);
+  if (row) row.hidden = !row.hidden;
 }
 </script>
 {% endblock %}

@@ -74,6 +74,8 @@ conn.close()
 
 app = create_app()
 app.config['WTF_CSRF_ENABLED'] = False
+# Uploads (the NIZAM import test) go to the temp dir, never the project folder.
+app.config['UPLOAD_FOLDER'] = os.path.join(tempfile.gettempdir(), 'mizan5_test_uploads')
 client = app.test_client()
 
 print('\n=== Authentication ===')
@@ -93,12 +95,15 @@ PAGES = [
     ('/documents/purchase_invoice', 'purchase invoices'),
     ('/documents/cash_in', 'money in'),
     ('/documents/cash_out', 'money out'),
+    ('/documents/cash_out?direction=internal', 'money out filtered by direction'),
+    ('/documents/sales_invoice?direction=external', 'invoices filtered by direction'),
     ('/documents/manual', 'manual entry'),
     ('/documents/opening', 'opening balances'),
     ('/journal', 'journal'),
     ('/trial-balance', 'trial balance'),
     ('/accounts', 'chart of accounts'),
     ('/counterparties', 'counterparties'),
+    ('/bank-accounts', 'bank accounts'),
     ('/staff', 'staff'),
     ('/staff/hours', 'timesheets'),
     ('/staff/equipment', 'equipment'),
@@ -117,6 +122,15 @@ PAGES = [
     ('/reports/aging?kind=ap', 'AP aging'),
     ('/periods', 'periods'),
     ('/settings', 'settings'),
+    # v4 feature port
+    ('/kpi', 'staff KPI'),
+    ('/pricing', 'pricing / scratch quote'),
+    ('/projects?sort=name&status=active&q=biz', 'projects filtered and sorted'),
+    ('/documents/sales_invoice?sort=total&dir=asc&page=1&per_page=25', 'invoices sorted and paged'),
+    (f'/documents/sales_invoice?project_id={PROJECT}&responsible_id={SID}', 'invoices by project and responsible'),
+    ('/staff?department=Arxitektura&staff_type=production&active=1&q=az', 'staff filtered'),
+    ('/staff/equipment?kind=personal&asset_class=computer&license_type=named', 'equipment filtered'),
+    ('/staff/hours?period=2026-06', 'timesheets for a period'),
 ]
 for url, label in PAGES:
     r = client.get(url)
@@ -262,11 +276,17 @@ r = client.post('/periods/depreciate', data={'period': '2026-05'},
                 follow_redirects=True)
 check('depreciation posts through the form', r.status_code == 200)
 from models.ledger import account_balance as _bal                     # noqa: E402
-check('accumulated depreciation is now on the books', _bal('0200') > 0,
-      str(_bal('0200')))
+# The credit lands on the contra account of the asset's CLASS (0250 for
+# computers), not on the 0200 parent, so sum the 02xx family.
+_accum = sum(_bal(c) for c in ('0200', '0220.1', '0230', '0240', '0250',
+                               '0260', '0290'))
+check('accumulated depreciation is now on the books', _accum > 0, str(_accum))
+check('it is credited per asset class, not to the 0200 parent',
+      _bal('0250') > 0 and abs(_bal('0200')) < 1,
+      f"0250={_bal('0250')} 0200={_bal('0200')}")
 check('the expense landed on 9420.1, not 9420',
-      _bal('9420.1') > 0 and abs(_bal('9420.1') - _bal('0200')) < 1,
-      f"9420.1={_bal('9420.1')} 0200={_bal('0200')}")
+      _bal('9420.1') > 0 and abs(_bal('9420.1') - _accum) < 1,
+      f"9420.1={_bal('9420.1')} accum={_accum}")
 r = client.post('/periods/depreciate', data={'period': '2026-05'},
                 follow_redirects=True)
 check('posting the same period twice is refused politely',
@@ -289,6 +309,128 @@ for code, marker in (('ru', 'Бухгалтерия'), ('en', 'Accounting'), ('u
     client.get(f'/lang/{code}')
     r = client.get('/')
     check(f'interface switches to {code}', marker.encode('utf-8') in r.data)
+
+print('\n=== v4 feature port through HTTP ===')
+# Scratch quote API — stateless, then saved into a project as milestones.
+quote_body = {'rows': [{'name': 'Eskiz', 'work_type': 'eskiz', 'start': '2027-01', 'end': '2027-02',
+                        'outsourcing': 500000, 'staff': [{'staff_id': SID, 'hours': 40}]}],
+              'risk': {'deadline_months': 6, 'client_type': 'new', 'complexity': 'medium',
+                       'currency': 'UZS'}}
+r = client.post('/api/pricing/quote', json=quote_body)
+check('scratch quote returns a priced schedule',
+      r.status_code == 200 and r.get_json()['quote']['target_contract'] > 0)
+conn = get_db()
+QP = conn.execute("INSERT INTO projects (name, is_billable) VALUES ('Quote target', 1)").lastrowid
+conn.commit()
+conn.close()
+r = client.post('/api/pricing/quote/save', json={**quote_body, 'project_id': QP})
+check('quote saves into a project', r.status_code == 200 and r.get_json()['created'] == 1, r.data[:120])
+r = client.post('/api/pricing/quote/save', json={**quote_body, 'project_id': QP})
+check('saving twice without overwrite is refused', r.status_code == 400 and r.get_json()['error'] == 'exists')
+r = client.get(f'/projects/{QP}')
+check('project page renders the quoted milestone', r.status_code == 200 and b'Eskiz' in r.data)
+
+# Unassigned hours → milestone from the project page.
+conn = get_db()
+PH = conn.execute("SELECT id FROM project_phases WHERE project_id=? LIMIT 1", (PROJECT,)).fetchone()
+conn.close()
+if PH:
+    r = client.post(f'/projects/{PROJECT}/assign-hours',
+                    data={'period': '2026-06', 'phase_id': PH['id']}, follow_redirects=True)
+    conn = get_db()
+    tagged = conn.execute("SELECT phase_id FROM project_hours WHERE project_id=? AND period='2026-06'",
+                          (PROJECT,)).fetchone()['phase_id']
+    conn.close()
+    check('assign-hours tags the month', r.status_code == 200 and tagged == PH['id'])
+    r = client.post(f'/projects/{PROJECT}/assign-hours',
+                    data={'period': '2026-06', 'phase_id': ''}, follow_redirects=True)
+    check('blank phase unassigns again', r.status_code == 200)
+
+# NIZAM upload through the form.
+import io as _io                                                      # noqa: E402
+import openpyxl                                                       # noqa: E402
+wb = openpyxl.Workbook()
+ws = wb.active
+ws.cell(2, 4, 'Aziz')
+ws.cell(2, 5, 'GHOST EMPLOYEE')
+ws.cell(4, 2, 'Biznes markaz'); ws.cell(4, 3, '8:00'); ws.cell(4, 4, '8:00')
+ws.cell(5, 2, 'HR'); ws.cell(5, 3, '2:00'); ws.cell(5, 4, '2:00')
+buf = _io.BytesIO()
+wb.save(buf)
+buf.seek(0)
+r = client.post('/staff/hours/import',
+                data={'file': (buf, 'table.xlsx'), 'period': '2026-07', 'create_projects': '1'},
+                content_type='multipart/form-data', follow_redirects=True)
+check('NIZAM upload imports and reports', r.status_code == 200
+      and 'GHOST EMPLOYEE'.encode() in r.data and b'2026-07' in r.data)
+conn = get_db()
+imported = conn.execute("SELECT hours, source FROM project_hours WHERE project_id=? AND staff_id=?"
+                        " AND period='2026-07'", (PROJECT, SID)).fetchone()
+conn.close()
+check('imported hours landed on the period', imported and imported['hours'] == 8
+      and imported['source'] == 'nizam')
+r = client.post('/staff/hours/import', data={'period': '2026-07'},
+                content_type='multipart/form-data', follow_redirects=True)
+check('an upload without a file is rejected politely', r.status_code == 200)
+
+# Periods: create, delete, and the hard-close lock.
+r = client.post('/periods/create', data={'code': '2032-01', 'notes': 'ahead'}, follow_redirects=True)
+check('period created from the form', r.status_code == 200 and b'2032-01' in r.data)
+r = client.post('/periods/notes', data={'period': '2032-01', 'notes': 'edited'}, follow_redirects=True)
+check('period notes saved', r.status_code == 200 and b'edited' in r.data)
+r = client.post('/periods/delete', data={'period': '2032-01'}, follow_redirects=True)
+check('empty period deleted', r.status_code == 200 and b'2032-01' not in r.data)
+from models.base import get_period_status                             # noqa: E402
+from models.reports import list_periods                               # noqa: E402
+hard = [p for p in list_periods() if p['status'] == 'hard_closed']
+if hard:
+    r = client.post('/periods/reopen', data={'period': hard[0]['code']}, follow_redirects=True)
+    check('hard-closed period stays closed through the UI',
+          r.status_code == 200 and get_period_status(hard[0]['code']) == 'hard_closed')
+
+# Loans: repayment through the form and auto-close.
+r = client.post('/loans/save', data={'loan_type': 'olgan', 'counterparty_id': VENDOR,
+                                     'total_amount': '3000000', 'currency': 'UZS',
+                                     'issue_date': '2026-08-01', 'term': 'short',
+                                     'status': 'ochiq', 'post_now': '1',
+                                     'payment_method': 'bank'}, follow_redirects=True)
+check('loan booked through the form', r.status_code == 200)
+conn = get_db()
+L2 = conn.execute("SELECT id FROM loans WHERE total_amount=3000000 ORDER BY id DESC LIMIT 1").fetchone()['id']
+conn.close()
+r = client.post(f'/loans/{L2}/payment', data={'principal': '3000000', 'interest': '100000',
+                                              'date': '2026-08-20', 'payment_method': 'bank'},
+                follow_redirects=True)
+conn = get_db()
+st = conn.execute("SELECT status FROM loans WHERE id=?", (L2,)).fetchone()['status']
+conn.close()
+check('a full repayment closes the loan', r.status_code == 200 and st == 'yopilgan', st)
+check('loans page shows the payment history', b'hist' + str(L2).encode() in client.get('/loans').data)
+
+# Documents list: paging and sorting survive the round trip.
+r = client.get('/documents/sales_invoice?sort=total&dir=asc&per_page=25&page=1')
+check('sorted, paged invoice list renders with a pager',
+      r.status_code == 200 and b'per_page' in r.data)
+r = client.get('/documents/sales_invoice?sort=nonsense&page=999')
+check('bad sort and page are clamped, not 500', r.status_code == 200)
+
+# Settings: nobody can lock themselves out; the CBU endpoint validates input.
+conn = get_db()
+ME = conn.execute("SELECT id FROM users WHERE username='admin'").fetchone()['id']
+conn.close()
+r = client.post('/settings/user', data={'id': ME, 'username': 'admin', 'role': 'viewer',
+                                        'is_active': '1'}, follow_redirects=True)
+conn = get_db()
+role = conn.execute("SELECT role, is_active FROM users WHERE id=?", (ME,)).fetchone()
+conn.close()
+check('admin cannot demote or deactivate themselves',
+      role['role'] == 'admin' and role['is_active'] == 1)
+r = client.get('/settings/fetch-rate')
+check('CBU fetch without a date is a 400', r.status_code == 400)
+
+# KPI page renders with data.
+r = client.get('/kpi')
+check('KPI page lists the production employee', r.status_code == 200 and b'Aziz' in r.data)
 
 print('\n=== Books remain intact ===')
 check('trial balance is balanced', get_trial_balance()['is_balanced'])

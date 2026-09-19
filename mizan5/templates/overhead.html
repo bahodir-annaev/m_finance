@@ -3,11 +3,15 @@
 {% block heading %}{{ t('nav_overhead') }}{% endblock %}
 
 {% block content %}
+{% if reason not in ('ledger', 'disabled') %}
+<div class="alert alert-warn">{{ t('overhead_fallback') }} — {{ t('reason_' ~ reason) }}</div>
+{% endif %}
 <div class="tiles">
   <div class="tile {% if active=='ledger' %}brand{% endif %}">
     <div class="label">{{ t('source_ledger') }}</div>
     <div class="value">{{ fmt(ledger.monthly) }}</div>
-    <div class="sub">{{ ledger.elapsed_months }} / {{ ledger.window_months }} {{ t('period') }}</div></div>
+    <div class="sub">{{ fmt(ledger.elapsed_months, 1) }} / {{ ledger.window_months }} {{ t('period') }}
+      {% if ledger.earliest %}<br>{{ ledger.cutoff }} … {{ ledger.as_of }}{% endif %}</div></div>
   <div class="tile {% if active=='budget' %}brand{% endif %}">
     <div class="label">{{ t('source_budget') }}</div>
     <div class="value">{{ fmt(budget_total) }}</div></div>

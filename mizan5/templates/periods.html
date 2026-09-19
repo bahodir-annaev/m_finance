@@ -120,36 +120,69 @@
 
 <div class="card">
   <div class="card-head"><h2>{{ t('nav_periods') }}</h2>
-    <span class="hint">{{ t('period_close_warning') }}</span></div>
+    <div class="btn-row">
+      <span class="hint">{{ t('period_close_warning') }}</span>
+      <button class="btn btn-sm btn-primary" onclick="openModal('periodModal')">+ {{ t('period') }}</button>
+    </div></div>
   <div class="table-wrap"><table>
     <thead><tr><th>{{ t('period') }}</th><th>{{ t('status') }}</th>
       <th class="num">{{ t('entry') }}</th>
+      <th class="num">{{ t('snapshots') }}</th>
       <th class="num">{{ t('income') }}</th><th class="num">{{ t('expense') }}</th>
-      <th class="num">{{ t('profit') }}</th><th>{{ t('actions') }}</th></tr></thead>
+      <th class="num">{{ t('profit') }}</th><th>{{ t('notes') }}</th><th>{{ t('actions') }}</th></tr></thead>
     <tbody>
       {% for p in periods %}
       <tr>
-        <td><b>{{ p.code }}</b></td>
+        <td><b>{{ p.code }}</b>
+          {% if p.closed_at %}<div class="faint" style="font-size:.7rem">{{ p.closed_at[:16] }} {{ p.closed_by_user or '' }}</div>{% endif %}</td>
         <td>{{ m.status_badge(p.status, t) }}</td>
         <td class="num muted">{{ p.entries }}</td>
+        <td class="num muted" title="{{ t('staff_snapshots') }} / {{ t('hours_snapped') }}">
+          {{ p.staff_snapshots }} · {{ p.hours_snapped }}/{{ p.hours_total }}</td>
         <td class="num">{{ fmt(p.income) }}</td>
         <td class="num">{{ fmt(p.expense) }}</td>
         <td class="num {% if p.profit >= 0 %}pos{% else %}neg{% endif %}">{{ fmt(p.profit) }}</td>
+        <td><form method="post" action="/periods/notes" class="btn-row" style="flex-wrap:nowrap">
+          <input type="hidden" name="period" value="{{ p.code }}">
+          <input name="notes" value="{{ p.notes or '' }}" style="min-width:140px" placeholder="—">
+          <button class="btn btn-sm btn-icon" title="{{ t('save') }}">&#10003;</button></form></td>
         <td class="nowrap">
           {% if p.status == 'open' %}
           <form method="post" action="/periods/close" style="display:inline"
                 onsubmit="return confirm('{{ t('period_close_warning') }}')">
             <input type="hidden" name="period" value="{{ p.code }}">
+            <input type="hidden" name="status" value="soft_closed">
+            <button class="btn btn-sm">{{ t('soft_close') }}</button></form>
+          <form method="post" action="/periods/close" style="display:inline"
+                onsubmit="return confirm('{{ t('period_close_warning') }}')">
+            <input type="hidden" name="period" value="{{ p.code }}">
             <button class="btn btn-sm">{{ t('close_period') }}</button></form>
-          {% else %}
+          {% if not p.entries %}
+          <form method="post" action="/periods/delete" style="display:inline"
+                onsubmit="return confirm('{{ t('confirm_delete') }}')">
+            <input type="hidden" name="period" value="{{ p.code }}">
+            <button class="btn btn-sm btn-icon">&times;</button></form>
+          {% endif %}
+          {% elif p.status == 'soft_closed' %}
           <form method="post" action="/periods/reopen" style="display:inline">
             <input type="hidden" name="period" value="{{ p.code }}">
             <button class="btn btn-sm">{{ t('reopen_period') }}</button></form>
+          {% else %}
+          <span class="faint" style="font-size:.75rem">{{ t('period_hard_locked') }}</span>
           {% endif %}
         </td>
       </tr>
-      {% else %}{{ m.empty_row(7, t) }}{% endfor %}
+      {% else %}{{ m.empty_row(9, t) }}{% endfor %}
     </tbody>
   </table></div>
 </div>
+
+{% call m.modal('periodModal', t('period'), '/periods/create', t) %}
+  <div class="grid grid-2">
+    {{ m.text_field('code', t('period') ~ ' (YYYY-MM)', value=suggested, required=True,
+                    attrs='pattern="\\d{4}-\\d{2}" placeholder="2026-06"') }}
+    {{ m.text_field('notes', t('notes')) }}
+  </div>
+  <p class="hint">{{ t('period_create_hint') }}</p>
+{% endcall %}
 {% endblock %}

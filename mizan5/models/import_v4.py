@@ -19,12 +19,16 @@ from .base import get_db, now_ts, normalize_name, DOC_PREFIXES
 from .ledger import account_id_for, get_account_by_code, post_entry
 from .documents import save_document, post_document, DocumentError
 from .ledger import PostingError
+from .depreciation import classify_asset
 
 V4_INCOME_TYPES = ('tushum', 'mizan_monthly', 'yakuniy_hisob')
 
 # v4 tx_type -> (account purpose or code, is_project_cost)
 # Salary and tax rows go to accounts that are NOT in the indirect pool, which
 # is how v4 treated them; office costs go to 9420, which IS the pool.
+# litsenziya goes to 9420.3 for the same reason: the `licenses` register below
+# already charges annual_cost/12 to every rate, so pooling the cash payment too
+# would count it twice. See posting.assert_not_pooled().
 TX_ACCOUNT_MAP = {
     'outsourcing': ('production_cost', True),
     'material': ('production_cost', True),
@@ -34,7 +38,7 @@ TX_ACCOUNT_MAP = {
     'ijara': ('admin_expense', False),
     'kommunal': ('admin_expense', False),
     'ovqat': ('admin_expense', False),
-    'litsenziya': ('admin_expense', False),
+    'litsenziya': ('license_expense', False),
     'malaka': ('admin_expense', False),
     'overhead': ('admin_expense', False),
 }
@@ -86,7 +90,7 @@ class Migration:
             'hours': 0, 'equipment': 0, 'licenses': 0, 'overhead': 0,
             'sales_invoices': 0, 'purchase_invoices': 0, 'receipts': 0,
             'payments': 0, 'internal': 0, 'loans': 0, 'dividends': 0,
-            'skipped': [],
+            'skipped': [], 'asset_classes': [],
         }
 
     def close(self):
@@ -94,6 +98,14 @@ class Migration:
 
     def skip(self, kind, ident, reason):
         self.report['skipped'].append({'kind': kind, 'id': ident, 'reason': reason})
+
+    def classify(self, name, price, quantity):
+        """Assign an asset class and record the assignment for review."""
+        cls, rule = classify_asset(name)
+        self.report['asset_classes'].append({
+            'name': name, 'asset_class': cls, 'matched': rule is not None,
+            'value': _num(price) * (quantity or 1)})
+        return cls
 
     # ── Reference data ──────────────────────────────────────────────────
 
@@ -269,20 +281,28 @@ class Migration:
             self.report['hours'] += 1
 
     def copy_assets(self, conn):
+        # v4 has no asset class — its register is one flat list on a single
+        # depreciation period. Classify on the way in from the asset name, and
+        # record every assignment in the report so the guesses are reviewable
+        # rather than silent. The v4 lifespan_months is carried across
+        # unchanged: re-lifing an asset moves every rate quoted from it, so it
+        # is a decision for /staff/equipment, not a side effect of migrating.
         for r in self.v4.execute("SELECT * FROM personal_equipment"):
+            cls = self.classify(r['name'], r['price'], 1)
             conn.execute(
-                "INSERT INTO equipment (name, kind, staff_id, quantity, price,"
-                " lifespan_months, purchase_date, is_active)"
-                " VALUES (?,'personal',?,1,?,?,?,?)",
-                (r['name'], self.staff.get(r['staff_id']), r['price'],
+                "INSERT INTO equipment (name, kind, asset_class, staff_id, quantity,"
+                " price, lifespan_months, purchase_date, is_active)"
+                " VALUES (?,'personal',?,?,1,?,?,?,?)",
+                (r['name'], cls, self.staff.get(r['staff_id']), r['price'],
                  r['lifespan_months'], r['purchase_date'], r['is_active']))
             self.report['equipment'] += 1
         for r in self.v4.execute("SELECT * FROM general_equipment"):
+            cls = self.classify(r['name'], r['price'], r['quantity'])
             conn.execute(
-                "INSERT INTO equipment (name, kind, quantity, price,"
+                "INSERT INTO equipment (name, kind, asset_class, quantity, price,"
                 " lifespan_months, purchase_date, is_active)"
-                " VALUES (?,'general',?,?,?,?,?)",
-                (r['name'], r['quantity'], r['price'], r['lifespan_months'],
+                " VALUES (?,'general',?,?,?,?,?,?)",
+                (r['name'], cls, r['quantity'], r['price'], r['lifespan_months'],
                  r['purchase_date'], r['is_active']))
             self.report['equipment'] += 1
         for r in self.v4.execute("SELECT * FROM personal_licenses"):
@@ -619,6 +639,27 @@ def run_migration(v4_path, verbose=True):
                 print(f'  skipped: {len(value)}')
                 for s in value[:10]:
                     print(f'    {s["kind"]} #{s["id"]}: {s["reason"]}')
+            elif key == 'asset_classes':
+                # Every assignment is reported, not just the totals: these are
+                # keyword guesses on free-text names and the only way they get
+                # corrected is if someone can see them.
+                by_class = {}
+                for a in value:
+                    b = by_class.setdefault(a['asset_class'],
+                                            {'n': 0, 'value': 0.0, 'fallback': 0})
+                    b['n'] += 1
+                    b['value'] += a['value']
+                    b['fallback'] += 0 if a['matched'] else 1
+                print(f'  asset_classes: {len(value)} assets classified')
+                for cls, b in sorted(by_class.items(), key=lambda kv: -kv[1]['value']):
+                    note = (f"  ({b['fallback']} unmatched -> fallback)"
+                            if b['fallback'] else '')
+                    print(f"    {cls:10} n={b['n']:3}  {b['value']:>15,.0f}{note}")
+                unmatched = [a for a in value if not a['matched']]
+                if unmatched:
+                    print(f"    -- review these {len(unmatched)}, they matched no rule:")
+                    for a in unmatched[:15]:
+                        print(f"       {a['name'][:64]}")
             elif key == 'reconciliation':
                 print('  reconciliation:')
                 for k, v in value.items():

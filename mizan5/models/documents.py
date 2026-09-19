@@ -27,6 +27,10 @@ INVOICE_TYPES = ('sales_invoice', 'purchase_invoice')
 CASH_TYPES = ('cash_in', 'cash_out')
 # Which side of a settlement each cash document works on.
 CASH_IN_TYPES = ('cash_in',)
+# Documents whose total the user types instead. A loan disbursement and a
+# dividend declaration have no line grid to add up, so if their typed total is
+# not persisted their posting comes out empty and post_entry refuses it.
+TYPED_TOTAL_TYPES = CASH_TYPES + ('loan', 'dividend')
 
 
 class DocumentError(Exception):
@@ -76,11 +80,15 @@ def get_document(doc_id, conn=None):
     try:
         row = conn.execute(
             "SELECT d.*, c.name AS counterparty_name, c.inn AS counterparty_inn,"
-            " p.name AS project_name, ph.name AS phase_name"
+            " p.name AS project_name, ph.name AS phase_name,"
+            " b.name AS bank_account_name, b.account_number AS bank_account_number,"
+            " b.bank_name, b.mfo, st.name AS responsible_name"
             " FROM documents d"
             " LEFT JOIN counterparties c ON c.id = d.counterparty_id"
             " LEFT JOIN projects p ON p.id = d.project_id"
             " LEFT JOIN project_phases ph ON ph.id = d.phase_id"
+            " LEFT JOIN bank_accounts b ON b.id = d.bank_account_id"
+            " LEFT JOIN staff st ON st.id = d.responsible_id"
             " WHERE d.id=?", (doc_id,)).fetchone()
         if not row:
             return None
@@ -105,56 +113,127 @@ def get_document(doc_id, conn=None):
             conn.close()
 
 
+# Sortable columns on the document lists → SQL. A whitelist, so the sort
+# key from the query string can never reach the SQL as text.
+DOCUMENT_SORTS = {
+    'date': 'd.date',
+    'number': 'd.number',
+    'counterparty': 'c.name',
+    'project': 'p.name',
+    'total': 'd.total',
+    'status': 'd.status',
+    'outstanding': '(d.total - settled)',
+}
+
+
+def _document_query(doc_type, status, date_from, date_to, counterparty_id,
+                    project_id, search, responsible_id, direction, directions):
+    """Shared WHERE clause for the list and its count. Returns (sql_from_where,
+    params) or (None, None) when a direction filter matches nothing."""
+    sql = (" FROM documents d"
+           " LEFT JOIN counterparties c ON c.id = d.counterparty_id"
+           " LEFT JOIN projects p ON p.id = d.project_id"
+           " LEFT JOIN bank_accounts b ON b.id = d.bank_account_id"
+           " LEFT JOIN staff st ON st.id = d.responsible_id WHERE 1=1")
+    params = []
+    if doc_type:
+        if isinstance(doc_type, (list, tuple)):
+            sql += f" AND d.doc_type IN ({','.join('?' * len(doc_type))})"
+            params += list(doc_type)
+        else:
+            sql += " AND d.doc_type = ?"
+            params.append(doc_type)
+    if status:
+        sql += " AND d.status = ?"
+        params.append(status)
+    if date_from:
+        sql += " AND d.date >= ?"
+        params.append(date_from)
+    if date_to:
+        sql += " AND d.date <= ?"
+        params.append(date_to)
+    if counterparty_id:
+        sql += " AND d.counterparty_id = ?"
+        params.append(counterparty_id)
+    if project_id:
+        sql += " AND d.project_id = ?"
+        params.append(project_id)
+    if responsible_id:
+        sql += " AND d.responsible_id = ?"
+        params.append(responsible_id)
+    if search:
+        sql += (" AND (ulower(d.number) LIKE ulower(?) OR ulower(d.description)"
+                " LIKE ulower(?) OR ulower(c.name) LIKE ulower(?)"
+                " OR ulower(d.external_number) LIKE ulower(?)"
+                " OR ulower(d.notes) LIKE ulower(?) OR ulower(p.name) LIKE ulower(?)"
+                " OR ulower(st.name) LIKE ulower(?))")
+        like = f'%{search}%'
+        params += [like] * 7
+    if direction:
+        # Inlined as integers rather than placeholders: the id set can run
+        # to thousands and SQLite caps bound parameters. They come straight
+        # from documents.id, so there is nothing to escape.
+        matching = [i for i, d in directions.items() if d == direction]
+        if not matching:
+            return None, None
+        sql += f" AND d.id IN ({','.join(str(int(i)) for i in matching)})"
+    return sql, params
+
+
+def count_documents(doc_type=None, status=None, date_from=None, date_to=None,
+                    counterparty_id=None, project_id=None, search=None,
+                    direction=None, responsible_id=None):
+    """Row count for the same filter as list_documents — what the pager needs."""
+    from .direction import document_directions
+    directions = document_directions() if direction else {}
+    sql, params = _document_query(doc_type, status, date_from, date_to, counterparty_id,
+                                  project_id, search, responsible_id, direction, directions)
+    if sql is None:
+        return 0
+    conn = get_db()
+    try:
+        return conn.execute("SELECT COUNT(*)" + sql, params).fetchone()[0]
+    finally:
+        conn.close()
+
+
 def list_documents(doc_type=None, status=None, date_from=None, date_to=None,
                    counterparty_id=None, project_id=None, search=None,
-                   limit=200, offset=0):
-    """Filtered document list for a list view, newest first."""
+                   direction=None, limit=200, offset=0, sort='date', sort_dir='desc',
+                   responsible_id=None):
+    """Filtered document list for a list view.
+
+    `direction` is derived, not stored — see models/direction.py. It is applied
+    inside the SQL rather than to the fetched page so that LIMIT/OFFSET
+    paginate over the filtered set; filtering afterwards would silently return
+    short pages. `sort` is a DOCUMENT_SORTS key; anything else falls back to
+    date, and the id is always the tie-breaker so paging is stable.
+    """
+    from .direction import document_directions   # local: direction reads documents
+
+    directions = document_directions()
+    order = DOCUMENT_SORTS.get(sort, DOCUMENT_SORTS['date'])
+    sort_dir = 'ASC' if str(sort_dir).lower() == 'asc' else 'DESC'
+    where, params = _document_query(doc_type, status, date_from, date_to, counterparty_id,
+                                    project_id, search, responsible_id, direction, directions)
+    if where is None:
+        return []
     conn = get_db()
     try:
         sql = ("SELECT d.*, c.name AS counterparty_name, p.name AS project_name,"
+               " b.name AS bank_account_name, b.account_number AS bank_account_number,"
+               " st.name AS responsible_name,"
                " (SELECT COALESCE(SUM(amount),0) FROM payment_allocations"
                "   WHERE invoice_doc_id = d.id) AS settled,"
                " (SELECT COALESCE(SUM(amount),0) FROM payment_allocations"
                "   WHERE payment_doc_id = d.id) AS allocated"
-               " FROM documents d"
-               " LEFT JOIN counterparties c ON c.id = d.counterparty_id"
-               " LEFT JOIN projects p ON p.id = d.project_id WHERE 1=1")
-        params = []
-        if doc_type:
-            if isinstance(doc_type, (list, tuple)):
-                sql += f" AND d.doc_type IN ({','.join('?' * len(doc_type))})"
-                params += list(doc_type)
-            else:
-                sql += " AND d.doc_type = ?"
-                params.append(doc_type)
-        if status:
-            sql += " AND d.status = ?"
-            params.append(status)
-        if date_from:
-            sql += " AND d.date >= ?"
-            params.append(date_from)
-        if date_to:
-            sql += " AND d.date <= ?"
-            params.append(date_to)
-        if counterparty_id:
-            sql += " AND d.counterparty_id = ?"
-            params.append(counterparty_id)
-        if project_id:
-            sql += " AND d.project_id = ?"
-            params.append(project_id)
-        if search:
-            sql += (" AND (ulower(d.number) LIKE ulower(?) OR ulower(d.description)"
-                    " LIKE ulower(?) OR ulower(c.name) LIKE ulower(?)"
-                    " OR ulower(d.external_number) LIKE ulower(?))")
-            like = f'%{search}%'
-            params += [like, like, like, like]
-        sql += " ORDER BY d.date DESC, d.id DESC LIMIT ? OFFSET ?"
-        params += [limit, offset]
-        rows = [dict(r) for r in conn.execute(sql, params)]
+               + where + f" ORDER BY {order} {sort_dir}, d.id {sort_dir} LIMIT ? OFFSET ?")
+        rows = [dict(r) for r in conn.execute(sql, params + [limit, offset])]
     finally:
         conn.close()
 
     for r in rows:
+        r['direction'] = directions.get(r['id'], 'internal')
         if r['doc_type'] in INVOICE_TYPES:
             r['outstanding'] = round(r['total'] - (r['settled'] or 0), 2)
         else:
@@ -286,6 +365,7 @@ def save_document(data, lines=None, allocations=None, doc_id=None):
             'project_id': data.get('project_id') or None,
             'phase_id': data.get('phase_id') or None,
             'loan_id': data.get('loan_id') or None,
+            'responsible_id': data.get('responsible_id') or None,
             'contract_ref': (data.get('contract_ref') or '').strip() or None,
             'external_number': (data.get('external_number') or '').strip() or None,
             'currency': currency,
@@ -293,13 +373,15 @@ def save_document(data, lines=None, allocations=None, doc_id=None):
             'total_cur': _num(data.get('total_cur')) or None,
             'payment_method': (data.get('payment_method') or '').strip() or None,
             'bank_account': (data.get('bank_account') or '').strip() or None,
+            'bank_account_id': data.get('bank_account_id') or None,
             'due_date': (data.get('due_date') or '').strip() or None,
             'cash_purpose': (data.get('cash_purpose') or '').strip() or None,
             'description': (data.get('description') or '').strip() or None,
             'notes': (data.get('notes') or '').strip() or None,
         }
-        # Cash documents carry a typed amount; invoice totals come from lines.
-        if doc_type in CASH_TYPES:
+        # Cash, loan and dividend documents carry a typed amount; invoice
+        # totals come from lines.
+        if doc_type in TYPED_TOTAL_TYPES:
             fields['total'] = round(_num(data.get('total')), 2)
 
         if doc_id:

@@ -50,7 +50,8 @@ pattern = re.compile(r"""\bt\(\s*['"]([a-z0-9_]+)['"]""")
 # Keys built dynamically, e.g. t('doc_' ~ doc_type) — the prefixes to accept.
 dynamic_prefixes = ('doc_', 'kind_', 'pool_', 'ms_', 'project_', 'client_',
                     'complexity_', 'role_', 'type_', 'period_', 'equipment_',
-                    'aging_', 'base_', 'source_')
+                    'aging_', 'base_', 'source_', 'reason_', 'class_',
+                    'dir_', 'sort_', 'light_', 'period_err_', 'skip_')
 used = {}
 for folder in ('templates', 'controllers'):
     root = os.path.join(HERE, folder)
@@ -86,6 +87,22 @@ FAMILIES = {
     'type_': ('production', 'admin'),
     'period_': ('open', 'soft_closed', 'hard_closed'),
     'equipment_': ('personal', 'general'),
+    # The derived money axis — must match DIRECTIONS in models/direction.py.
+    'dir_': ('external', 'internal', 'financing'),
+    # Why the ledger overhead pool was not used. 'ledger' and 'disabled'
+    # are the non-warning cases and the template never renders them.
+    'reason_': ('ledger_empty', 'ledger_stale', 'pool_negative'),
+    # Asset classes: must match ASSET_CLASS_SEED in models/base.py.
+    'class_': ('computer', 'furniture', 'machinery', 'vehicle',
+               'building', 'other'),
+    # Project list sort keys: must match PROJECT_SORTS in models/projects.py.
+    'sort_': ('hours', 'name', 'status', 'contract', 'start'),
+    # The time-phased traffic light (models/milestones.py rollup status).
+    'light_': ('on', 'edge', 'off', 'none', 'money', 'schedule', 'collections'),
+    # create/delete period errors (models/base.py).
+    'period_err_': ('bad_code', 'exists', 'not_found', 'not_open', 'has_entries'),
+    # NIZAM import skip reasons (models/import_nizam.py SKIP_REASONS).
+    'skip_': ('non_billable', 'no_hours', 'no_name'),
 }
 for prefix, suffixes in FAMILIES.items():
     missing = [f'{prefix}{s}' for s in suffixes if f'{prefix}{s}' not in uz_keys]
@@ -103,7 +120,7 @@ ERROR_KEYS = [
     'doc_not_found', 'doc_already_posted', 'doc_not_posted',
     'doc_posted_readonly', 'doc_number_taken', 'alloc_exceeds_payment',
     'alloc_exceeds_invoice', 'alloc_invoice_not_posted',
-    'depreciation_account_in_pool',
+    'account_in_pool',
 ]
 for key in ERROR_KEYS:
     ok = all(key in TRANSLATIONS[lang] for lang in ('uz', 'en', 'ru'))

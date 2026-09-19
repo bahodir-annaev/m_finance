@@ -11,9 +11,10 @@ from flask_login import login_required
 from auth import require_level
 from models import (
     DocumentError, PostingError, save_document, post_document, void_document,
-    delete_draft, get_document, list_documents, open_invoices, get_accounts,
-    get_lookup, get_db, today_str, default_vat_rate, list_projects,
-    get_project_milestones,
+    delete_draft, get_document, list_documents, count_documents, open_invoices,
+    get_accounts, get_lookup, get_db, today_str, default_vat_rate, list_projects,
+    get_project_milestones, DIRECTIONS, list_bank_accounts, DOCUMENT_SORTS,
+    sync_loan_status,
 )
 from utils import render_page, t, parse_float, parse_int, form_rows
 
@@ -29,6 +30,8 @@ DOC_PAGES = {
     'opening': ('nav_opening', 'doc_opening'),
     'dividend': ('doc_dividend', 'doc_dividend'),
 }
+
+PER_PAGE_CHOICES = (25, 50, 100, 200)
 
 INVOICE_LINE_FIELDS = ('description', 'quantity', 'unit_price', 'amount',
                        'vat_rate', 'vat_amount', 'account_id', 'project_id', 'phase_id')
@@ -100,21 +103,45 @@ def document_list(doc_type):
         'status': request.args.get('status') or None,
         'search': request.args.get('q') or None,
         'counterparty_id': request.args.get('counterparty_id', type=int),
+        'project_id': request.args.get('project_id', type=int),
+        'responsible_id': request.args.get('responsible_id', type=int),
+        'direction': request.args.get('direction') or None,
     }
-    rows = list_documents(doc_type=doc_type, **filters)
+    # Paging and sorting. The sort key is whitelisted in the model; per-page
+    # is whitelisted here so a crafted URL cannot ask for a million rows.
+    sort = request.args.get('sort') or 'date'
+    if sort not in DOCUMENT_SORTS:
+        sort = 'date'
+    sort_dir = 'asc' if request.args.get('dir') == 'asc' else 'desc'
+    per_page = request.args.get('per_page', type=int) or 50
+    if per_page not in PER_PAGE_CHOICES:
+        per_page = 50
+    total_count = count_documents(doc_type=doc_type, **filters)
+    total_pages = max(1, (total_count + per_page - 1) // per_page)
+    page = min(max(1, request.args.get('page', type=int) or 1), total_pages)
+    rows = list_documents(doc_type=doc_type, limit=per_page, offset=(page - 1) * per_page,
+                          sort=sort, sort_dir=sort_dir, **filters)
 
     conn = get_db()
     counterparties = [dict(r) for r in conn.execute(
         "SELECT id, name, inn FROM counterparties WHERE is_active=1 ORDER BY name")]
+    staff = [dict(r) for r in conn.execute(
+        "SELECT id, name FROM staff WHERE is_active=1 ORDER BY name")]
     conn.close()
 
+    # The query string without page/sort, so the pager and the header links can
+    # append their own without losing the filter.
+    base_args = {k: v for k, v in request.args.items()
+                 if k not in ('page', 'sort', 'dir') and v}
     context = {
         'doc_type': doc_type, 'rows': rows, 'filters': filters,
         'title': t(title_key), 'modal_title': t(modal_key),
-        'counterparties': counterparties,
-        'projects': list_projects(),
+        'counterparties': counterparties, 'staff': staff,
+        'directions': DIRECTIONS,
+        'projects': list_projects(sort='name'),
         'accounts': get_accounts(),
         'payment_types': get_lookup('payment_types'),
+        'bank_accounts': list_bank_accounts(),
         'today': today_str(),
         'vat_rate': default_vat_rate(),
         'totals': {
@@ -122,6 +149,9 @@ def document_list(doc_type):
             'settled': sum(r.get('settled') or 0 for r in rows),
             'outstanding': sum(r.get('outstanding') or 0 for r in rows),
         },
+        'sort': sort, 'sort_dir': sort_dir, 'cur_page': page, 'per_page': per_page,
+        'total_pages': total_pages, 'total_count': total_count,
+        'per_page_choices': PER_PAGE_CHOICES, 'base_args': base_args,
     }
     if doc_type in ('cash_in', 'cash_out'):
         context['open_invoices'] = open_invoices(
@@ -142,6 +172,7 @@ def document_save(doc_type):
         'counterparty_id': parse_int(request.form.get('counterparty_id')),
         'project_id': parse_int(request.form.get('project_id')),
         'phase_id': parse_int(request.form.get('phase_id')),
+        'responsible_id': parse_int(request.form.get('responsible_id')),
         'contract_ref': request.form.get('contract_ref'),
         'external_number': request.form.get('external_number'),
         'currency': request.form.get('currency') or 'UZS',
@@ -150,6 +181,7 @@ def document_save(doc_type):
         'total_cur': parse_float(request.form.get('total_cur')) or None,
         'payment_method': request.form.get('payment_method'),
         'bank_account': request.form.get('bank_account'),
+        'bank_account_id': parse_int(request.form.get('bank_account_id')),
         'due_date': request.form.get('due_date'),
         'cash_purpose': request.form.get('cash_purpose'),
         'description': request.form.get('description'),
@@ -194,6 +226,8 @@ def document_void(doc_id):
         abort(404)
     try:
         void_document(doc_id, reason=request.form.get('reason'))
+        if doc.get('loan_id'):
+            sync_loan_status(doc['loan_id'])
         flash(f'<div class="alert alert-success">{t("doc_void_done")}</div>', 'success')
     except (DocumentError, PostingError) as e:
         _flash_error(e.key, e.detail)

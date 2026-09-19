@@ -22,8 +22,35 @@
       <input type="date" name="date_from" value="{{ date_from }}"></div>
     <div class="field"><label>{{ t('date_to') }}</label>
       <input type="date" name="date_to" value="{{ date_to }}"></div>
+    {% if bank_accounts %}
+    <div class="field"><label>{{ t('bank_account') }}</label>
+      <select name="bank_account_id"><option value="">{{ t('all') }}</option>
+        {% for b in bank_accounts %}
+        <option value="{{ b.id }}" {% if bank_account_id == b.id %}selected{% endif %}>{{ b.name }}</option>
+        {% endfor %}
+      </select></div>
+    {% endif %}
     <button class="btn">{{ t('filter') }}</button>
   </form>
+  {% if bank_balances %}
+  <div class="card-body tight" style="border-bottom:1px solid var(--line)">
+    <table style="max-width:560px">
+      <thead><tr><th>{{ t('bank_account') }}</th><th>{{ t('bank_account_number') }}</th>
+        <th class="num">{{ t('balance') }}</th></tr></thead>
+      <tbody>
+        {% for b in bank_balances %}
+        <tr><td><a href="?bank_account_id={{ b.id }}&date_from={{ date_from }}&date_to={{ date_to }}">{{ b.name }}</a></td>
+          <td class="muted">{{ b.account_number or '' }}</td>
+          <td class="num">{{ fmt(b.balance) }}</td></tr>
+        {% endfor %}
+        {% if unassigned %}
+        <tr><td class="muted">{{ t('unassigned') }}</td><td></td>
+          <td class="num">{{ fmt(unassigned) }}</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
   <div class="table-wrap"><table>
     <thead><tr>
       <th>{{ t('date') }}</th><th>{{ t('entry_no') }}</th><th>{{ t('memo') }}</th>
@@ -37,7 +64,7 @@
         <td class="nowrap">{{ r.date }}</td>
         <td>#{{ r.entry_no }}</td>
         <td class="muted">{{ r.memo or r.description or '' }}</td>
-        <td class="muted">{{ r.counterparty_name or r.project_name or r.staff_name or '' }}</td>
+        <td class="muted">{{ r.bank_account_name or r.counterparty_name or r.project_name or r.staff_name or '' }}</td>
         <td class="num">{{ fmt(r.debit) if r.debit else '' }}</td>
         <td class="num">{{ fmt(r.credit) if r.credit else '' }}</td>
         <td class="num"><b>{{ fmt(r.running_balance) }}</b></td>

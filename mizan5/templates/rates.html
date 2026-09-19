@@ -10,6 +10,17 @@
 {% endmacro %}
 
 {% block content %}
+{# The overhead source is a silent input to every rate on this page. When the
+   ledger was asked for and could not answer, say so — rates built on the
+   untouched budget seed look exactly as confident as real ones. #}
+{% if ov.overhead_reason not in ('ledger', 'disabled') %}
+<div class="alert alert-warn">{{ t('overhead_fallback') }} — {{ t('reason_' ~ ov.overhead_reason) }}
+  (<a href="/rates/overhead">{{ t('nav_overhead') }}</a>)</div>
+{% endif %}
+{% if depreciation.uncapitalized > 0 %}
+<div class="alert alert-warn">{{ t('uncapitalized_equipment') }}:
+  {{ fmt(depreciation.uncapitalized) }} — {{ t('uncapitalized_hint') }}</div>
+{% endif %}
 <div class="tiles">
   <div class="tile brand">
     <div class="label">{{ t('overhead_rate') }}</div>
@@ -95,6 +106,7 @@
         <th class="num">{{ t('overhead_rate') }}</th>
         <th class="num"><b>{{ t('cost_rate') }}</b></th>
         <th class="num">{{ t('billing_rate') }}</th>
+        <th class="num">{{ t('billing_rate') }} $</th>
         <th class="num">{{ t('net_multiplier') }}</th>
       </tr></thead>
       <tbody>
@@ -115,15 +127,16 @@
           <td class="num muted">{{ fmt(r.overhead_rate_pct, 0) }}%</td>
           <td class="num"><b style="color:var(--brand)">{{ fmt(r.cost_rate) }}</b></td>
           <td class="num">{{ fmt(r.billing_rate) }}</td>
+          <td class="num muted">${{ fmt(r.billing_usd, 1) }}<div class="faint" style="font-size:.7rem">${{ fmt(r.cost_usd, 1) }}</div></td>
           <td class="num {% if r.net_multiplier >= benchmarks.net_multiplier[0]
                             and r.net_multiplier <= benchmarks.net_multiplier[1] %}pos{% endif %}">
             {{ fmt(r.net_multiplier, 2) }}×</td>
           {% else %}
-          <td colspan="12" class="muted">{{ t('no_salary_set') }} —
+          <td colspan="13" class="muted">{{ t('no_salary_set') }} —
             <a href="/staff">{{ t('nav_salaries') }}</a></td>
           {% endif %}
         </tr>
-        {% else %}{{ m.empty_row(15, t) }}{% endfor %}
+        {% else %}{{ m.empty_row(16, t) }}{% endfor %}
       </tbody>
       {% if ov.priced_count %}
       <tfoot><tr class="total-row">
@@ -135,7 +148,8 @@
         <td class="num">{{ fmt(ov.firm_utilization_pct, 1) }}%</td>
         <td class="num">{{ fmt(ov.firm_overhead_rate_pct, 0) }}%</td>
         <td class="num">{{ fmt(ov.avg_cost_rate) }}</td>
-        <td class="num">{{ fmt(ov.avg_billing_rate) }}</td><td></td>
+        <td class="num">{{ fmt(ov.avg_billing_rate) }}</td>
+        <td class="num muted">${{ fmt(ov.avg_billing_rate / ov.usd_rate, 1) if ov.usd_rate else 0 }}</td><td></td>
       </tr></tfoot>
       {% endif %}
     </table>

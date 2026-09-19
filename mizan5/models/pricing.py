@@ -523,3 +523,66 @@ def quote_schedule(schedule_rows, risk_kwargs=None):
         'plan_margin_pct': ((t_price - t_expense) / t_price * 100) if t_price > 0 else 0,
         'has_override': any(r['is_overridden'] for r in rows),
     }
+
+
+def save_quote_to_project(project_id, schedule_rows, risk_kwargs=None, overwrite=False):
+    """Persist a scratch quote as real milestones, employee rows and all.
+
+    The per-milestone employee mix is kept, so planned_cost stays derived from
+    milestone_staff rather than from a percentage split.
+    Returns (created_count, error), error in (None,'notfound','empty','exists','locked').
+    """
+    from .milestones import add_milestone, month_first_day, month_last_day
+
+    rows = [r for r in (schedule_rows or []) if (r.get('name') or '').strip()]
+    if not rows:
+        return 0, 'empty'
+    conn = get_db()
+    try:
+        if not conn.execute("SELECT 1 FROM projects WHERE id=?", (project_id,)).fetchone():
+            return 0, 'notfound'
+        existing = conn.execute(
+            "SELECT COUNT(*) FROM project_phases WHERE project_id=?", (project_id,)
+        ).fetchone()[0]
+        if existing:
+            if not overwrite:
+                return 0, 'exists'
+            used = conn.execute(
+                "SELECT COUNT(*) FROM documents d JOIN project_phases pp ON d.phase_id = pp.id"
+                " WHERE pp.project_id=?", (project_id,)).fetchone()[0]
+            if used:
+                return 0, 'locked'
+            conn.execute("UPDATE project_hours SET phase_id=NULL"
+                         " WHERE project_id=? AND phase_id IS NOT NULL", (project_id,))
+            conn.execute("DELETE FROM project_phases WHERE project_id=?", (project_id,))
+            conn.commit()
+    finally:
+        conn.close()
+
+    if risk_kwargs:
+        save_project_risk(project_id, **risk_kwargs)
+
+    quote = quote_schedule(rows, risk_kwargs)
+    created = 0
+    for i, (r, priced) in enumerate(zip(rows, quote['rows'])):
+        start = (r.get('start') or '').strip()
+        end = (r.get('end') or '').strip() or start
+        mid = add_milestone(
+            project_id, priced['name'],
+            work_type=(r.get('work_type') or '').strip() or None,
+            start_date=month_first_day(start) if start else None,
+            end_date=month_last_day(end) if end else None,
+            planned_outsourcing=priced['outsourcing'],
+            planned_material=priced['material'],
+            planned_revenue=priced['price'],
+            sort_order=(i + 1) * 10,
+        )
+        if not mid:
+            continue
+        set_milestone_staff(mid, [
+            {'staff_id': sr.get('staff_id'),
+             'est_hours': sr.get('hours') or sr.get('est_hours') or 0}
+            for sr in (r.get('staff') or []) if isinstance(sr, dict)
+        ])
+        created += 1
+    return created, None

@@ -7,6 +7,7 @@ from models import (
     list_periods, close_period, reopen_period, PostingError, get_pnl,
     fx_position, post_fx_revaluation, period_bounds, today_str, period_of,
     depreciation_preview, post_period_depreciation,
+    create_fiscal_period, delete_fiscal_period, set_period_notes,
 )
 from utils import render_page, t
 
@@ -28,7 +29,52 @@ def periods_page():
     return render_page('periods', 'periods.html', periods=periods,
                        fx=fx_position(), today=today_str(),
                        depreciation=depreciation_preview(dep_period),
-                       dep_period=dep_period, title=t('nav_periods'))
+                       dep_period=dep_period, suggested=_suggest_next(periods),
+                       title=t('nav_periods'))
+
+
+def _suggest_next(periods):
+    """YYYY-MM after the latest existing period, or the current month."""
+    if periods:
+        code = periods[0]['code']
+        y, m = int(code[:4]), int(code[5:7]) + 1
+        if m > 12:
+            m, y = 1, y + 1
+        return f'{y:04d}-{m:02d}'
+    return period_of(today_str())
+
+
+@bp.route('/periods/create', methods=['POST'])
+@login_required
+@require_level('manager')
+def period_create():
+    ok, err = create_fiscal_period(request.form.get('code'), request.form.get('notes'))
+    if ok:
+        flash(f'<div class="alert alert-success">{t("period_created")}</div>', 'success')
+    else:
+        flash(f'<div class="alert alert-warn">{t("period_err_" + err)}</div>', 'warn')
+    return redirect('/periods')
+
+
+@bp.route('/periods/delete', methods=['POST'])
+@login_required
+@require_level('admin')
+def period_delete():
+    ok, err = delete_fiscal_period(request.form.get('period'))
+    if ok:
+        flash(f'<div class="alert alert-success">{t("deleted")}</div>', 'success')
+    else:
+        flash(f'<div class="alert alert-warn">{t("period_err_" + err)}</div>', 'warn')
+    return redirect('/periods')
+
+
+@bp.route('/periods/notes', methods=['POST'])
+@login_required
+@require_level('manager')
+def period_notes():
+    set_period_notes(request.form.get('period'), request.form.get('notes'))
+    flash(f'<div class="alert alert-success">{t("saved")}</div>', 'success')
+    return redirect('/periods')
 
 
 @bp.route('/periods/close', methods=['POST'])
@@ -53,8 +99,10 @@ def period_close():
 @login_required
 @require_level('admin')
 def period_reopen():
-    reopen_period(request.form.get('period'))
-    flash(f'<div class="alert alert-success">{t("period_reopened")}</div>', 'success')
+    if reopen_period(request.form.get('period')):
+        flash(f'<div class="alert alert-success">{t("period_reopened")}</div>', 'success')
+    else:
+        flash(f'<div class="alert alert-warn">{t("period_hard_locked")}</div>', 'warn')
     return redirect('/periods')
 
 

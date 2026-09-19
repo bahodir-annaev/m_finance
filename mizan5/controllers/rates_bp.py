@@ -9,9 +9,10 @@ from flask_login import login_required
 
 from auth import require_level
 from models import (
-    get_rates_overview, get_available_hours, set_setting, get_setting,
+    get_rates_overview, get_available_hours, set_setting,
     snapshot_period_allocations, get_period_snapshot, latest_period,
     depreciation_reconciliation, ledger_overhead_monthly, overhead_budget_monthly,
+    overhead_monthly,
 )
 from utils import render_page, t
 
@@ -75,10 +76,16 @@ def rates_snapshot():
 @bp.route('/rates/overhead')
 @login_required
 def overhead_reconciliation():
-    """Ledger pool against the static budget table, side by side."""
+    """Ledger pool against the static budget table, side by side.
+
+    `reason` is what the rate engine actually did, not what the setting asks
+    for: asking for the ledger and silently getting the budget table is the
+    failure mode this page exists to make visible.
+    """
+    resolved = overhead_monthly()
     return render_page('rates', 'overhead.html',
                        ledger=ledger_overhead_monthly(),
                        budget_total=overhead_budget_monthly(),
-                       active=('ledger' if (get_setting('overhead_from_ledger') or 0) >= 1
-                               else 'budget'),
+                       active=resolved['source'],
+                       reason=resolved['reason'],
                        title=t('nav_overhead'))

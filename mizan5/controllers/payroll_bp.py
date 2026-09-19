@@ -9,7 +9,7 @@ from models import (
     build_payroll_rows, payroll_totals, save_payroll, get_payroll_for_period,
     list_payroll_periods, payroll_liabilities, build_remittance_lines,
     post_document, DocumentError, PostingError, get_document, today_str,
-    get_lookup,
+    get_lookup, list_bank_accounts,
 )
 from utils import render_page, t, parse_float, parse_int, form_rows
 
@@ -34,6 +34,7 @@ def payroll_page():
                        liabilities=payroll_liabilities(),
                        remittance=build_remittance_lines(period),
                        payment_types=get_lookup('payment_types'),
+                       bank_accounts=list_bank_accounts(),
                        today=today_str(), title=t('nav_payroll'))
 
 
@@ -85,6 +86,7 @@ def payroll_remit():
         doc_id = save_document(
             {'doc_type': 'cash_out', 'date': request.form.get('date') or today_str(),
              'payment_method': request.form.get('payment_method') or 'bank',
+             'bank_account_id': parse_int(request.form.get('bank_account_id')),
              'total': total, 'description': f'Ish haqi to\'lovi {period}',
              'cash_purpose': 'payroll'},
             lines=lines)

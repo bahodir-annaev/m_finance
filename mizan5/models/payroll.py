@@ -9,17 +9,15 @@ Paying the money out is a separate cash_out document with lines on 6710
 (net pay), 6420.1 (PIT) and 6520 (social) — after both, all three accounts
 return to zero, which is the test that the period was settled in full.
 """
-from calendar import monthrange
 
-from .base import get_db, get_setting, period_of
+from .base import get_db, get_setting, period_end, period_of
 from .documents import save_document, get_document
 from .staff import salary_at, _num
 
 
 def period_bounds(period):
     """'YYYY-MM' → ('YYYY-MM-01', 'YYYY-MM-<last>')."""
-    y, m = int(period[:4]), int(period[5:7])
-    return f'{y:04d}-{m:02d}-01', f'{y:04d}-{m:02d}-{monthrange(y, m)[1]:02d}'
+    return f'{period}-01', period_end(period)
 
 
 def build_payroll_rows(period, conn=None):

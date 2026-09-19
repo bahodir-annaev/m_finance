@@ -13,6 +13,7 @@ import os
 import subprocess
 import sys
 import tempfile
+from datetime import datetime, timedelta
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 V4_ROOT = os.path.dirname(HERE)
@@ -25,7 +26,7 @@ os.environ['MIZAN_ADMIN_PASSWORD'] = 'test'
 if os.path.exists(DB_FILE):
     os.remove(DB_FILE)
 
-from models.base import init_db, get_db, set_setting                # noqa: E402
+from models.base import init_db, get_db, set_setting, today_str      # noqa: E402
 from models import staff as rates                                   # noqa: E402
 from models.documents import save_document, post_document           # noqa: E402
 from models.ledger import account_id_for                            # noqa: E402
@@ -266,16 +267,21 @@ check('budget source totals the overhead table',
       close(budget_ov['monthly'], 30000000) and budget_ov['source'] == 'budget',
       str(budget_ov['monthly']))
 
-# Post a real office-rent expense; with the ledger source it must replace the table.
+# Post a real office-rent expense; with the ledger source it must replace the
+# table. The dates are RELATIVE to today because the pool reads a trailing
+# window: fixed dates would drop out of it once enough real time passed, and
+# the assertions below would then fail for a reason unrelated to the code.
 conn = get_db()
 vendor = conn.execute(
     "INSERT INTO counterparties (name, counterparty_type) VALUES ('Ijarachi MChJ','vendor')"
 ).lastrowid
 conn.commit()
 conn.close()
-for month in ('2026-04', '2026-05', '2026-06'):
+_today = datetime.strptime(today_str(), '%Y-%m-%d')
+for months_ago in (3, 2, 1):
+    when = _today - timedelta(days=months_ago * 30.44)
     doc = save_document(
-        {'doc_type': 'purchase_invoice', 'date': f'{month}-05',
+        {'doc_type': 'purchase_invoice', 'date': when.strftime('%Y-%m-%d'),
          'counterparty_id': vendor, 'description': 'Ofis ijarasi'},
         lines=[{'description': 'Ijara', 'amount': 20000000, 'vat_rate': 0,
                 'account_id': account_id_for('admin_expense')}])

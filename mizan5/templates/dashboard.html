@@ -17,11 +17,15 @@
     <div class="label">{{ t('cash') }}</div>
     <div class="value">{{ fmt(d.cash) }}</div>
     <div class="sub">{% for a in d.cash_accounts %}{{ a.code }}: {{ fmt(a.balance) }}{% if not loop.last %} · {% endif %}{% endfor %}</div>
+    {% set banks = d.cash_accounts|map(attribute='bank_accounts')|sum(start=[]) %}
+    {% if banks %}<div class="sub">{% for b in banks %}{{ b.name }}: {{ fmt(b.balance) }}{% if not loop.last %} · {% endif %}{% endfor %}</div>{% endif %}
   </div>
   <div class="tile {% if d.receivable_overdue > 0 %}warn{% endif %}">
     <div class="label">{{ t('receivable') }}</div>
     <div class="value">{{ fmt(d.receivable) }}</div>
     <div class="sub">{{ t('overdue') }}: {{ fmt(d.receivable_overdue) }}</div>
+    <div class="sub">0–30: {{ fmt(d.ar_buckets.b0_30) }} · 31–60: {{ fmt(d.ar_buckets.b31_60) }}
+      · 61–90: {{ fmt(d.ar_buckets.b61_90) }} · 90+: {{ fmt(d.ar_buckets.b90_plus) }}</div>
   </div>
   <div class="tile {% if d.payable > 0 %}bad{% endif %}">
     <div class="label">{{ t('payable') }}</div>
@@ -42,6 +46,71 @@
     <div class="label">{{ t('capacity') }}</div>
     <div class="value">{{ fmt(d.capacity.utilization_pct, 1) }}%</div>
     <div class="sub">{{ d.capacity.staff_count }} × {{ fmt(d.capacity.total_hours) }} {{ t('hours') }}</div>
+  </div>
+</div>
+
+<div class="tiles">
+  <div class="tile">
+    <div class="label">{{ t('external_in') }}</div>
+    <div class="value pos">{{ fmt(d.cash_split.external['in']) }}</div>
+    <div class="sub">{{ t('external_out') }}: {{ fmt(d.cash_split.external.out) }}</div>
+  </div>
+  <div class="tile">
+    <div class="label">{{ t('internal_out') }}</div>
+    <div class="value neg">{{ fmt(d.cash_split.internal.out) }}</div>
+    <div class="sub">{{ t('cash_in_total') }}: {{ fmt(d.cash_split.internal['in']) }}</div>
+  </div>
+  <div class="tile">
+    <div class="label">{{ t('financing_net') }}</div>
+    <div class="value">{{ fmt(d.cash_split.financing['in'] - d.cash_split.financing.out) }}</div>
+    <div class="sub"><a href="/reports/cashflow">{{ t('nav_cashflow') }}</a></div>
+  </div>
+  <div class="tile {% if d.on_course.off > 0 %}bad{% elif d.on_course.tracked > 0 %}ok{% endif %}">
+    <div class="label">{{ t('on_course') }}</div>
+    <div class="value">{{ d.on_course.on }} / {{ d.on_course.tracked }}</div>
+    <div class="sub">{{ t('light_edge') }}: {{ d.on_course.edge }} · {{ t('light_off') }}: {{ d.on_course.off }}
+      · {{ t('late_projects') }}: {{ d.on_course.late_projects }}</div>
+  </div>
+  <div class="tile {% if d.fx.total_difference >= 0 %}ok{% else %}bad{% endif %}">
+    <div class="label">{{ t('fx_gain_loss') }}</div>
+    <div class="value">{{ fmt_signed(d.fx.total_difference) }}</div>
+    <div class="sub"><a href="/periods">{{ t('fx_revaluation') }}</a> · {{ d.fx.positions|length }}</div>
+  </div>
+  <div class="tile {% if d.loans.olgan.overdue %}warn{% endif %}">
+    <div class="label">{{ t('nav_loans') }}</div>
+    <div class="value">{{ fmt(d.loans.olgan.outstanding) }}</div>
+    <div class="sub">{{ t('loans_taken') }}: {{ d.loans.olgan.open }} · {{ t('loans_given') }}:
+      {{ d.loans.bergan.open }} ({{ fmt(d.loans.bergan.outstanding) }})</div>
+  </div>
+</div>
+
+{# ── CFO metrics (v4 dashboard): break-even, per-employee, per-hour ── #}
+<div class="tiles">
+  <div class="tile">
+    <div class="label">{{ t('breakeven_revenue') }}</div>
+    <div class="value">{{ fmt(d.cfo.breakeven_revenue) }}</div>
+    <div class="sub">{{ t('per_month') }} · {{ t('gross_margin') }} {{ fmt(d.cfo.gross_margin_pct, 1) }}%</div>
+  </div>
+  <div class="tile">
+    <div class="label">{{ t('revenue_per_employee') }}</div>
+    <div class="value">{{ fmt(d.cfo.revenue_per_employee) }}</div>
+    <div class="sub">{{ d.staff.production }} {{ t('type_production') }} · {{ d.staff.admin }} {{ t('type_admin') }}</div>
+  </div>
+  <div class="tile {% if d.cfo.profit_per_hour >= 0 %}ok{% else %}bad{% endif %}">
+    <div class="label">{{ t('profit_per_hour') }}</div>
+    <div class="value">{{ fmt(d.cfo.profit_per_hour) }}</div>
+    <div class="sub">{{ fmt(d.staff.total_hours, 0) }} {{ t('hours') }}</div>
+  </div>
+  <div class="tile">
+    <div class="label">{{ t('cost_rate') }} ⌀ / {{ t('billing_rate') }} ⌀</div>
+    <div class="value">{{ fmt(d.staff.avg_cost_rate) }} <span class="faint" style="font-size:.9rem">/ {{ fmt(d.staff.avg_billing_rate) }}</span></div>
+    <div class="sub">${{ fmt(d.staff.avg_cost_rate / d.usd_rate, 1) if d.usd_rate else 0 }} /
+      ${{ fmt(d.staff.avg_billing_rate / d.usd_rate, 1) if d.usd_rate else 0 }}</div>
+  </div>
+  <div class="tile">
+    <div class="label">{{ t('utilization') }}</div>
+    <div class="value">{{ fmt(d.staff.utilization_pct, 1) }}%</div>
+    <div class="sub">{{ t('overhead_rate') }}: {{ fmt(d.staff.overhead_rate_pct, 0) }}% · <a href="/rates">{{ t('nav_rates') }}</a></div>
   </div>
 </div>
 
@@ -78,6 +147,37 @@
       </tbody>
     </table></div></div>
   </div>
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>{{ t('top_projects') }}</h2>
+    <a class="btn btn-sm" href="/projects">{{ t('view') }}</a></div>
+  <div class="card-body tight"><div class="table-wrap"><table>
+    <thead><tr>
+      <th>#</th><th>{{ t('project') }}</th><th class="num">{{ t('hours') }}</th>
+      <th class="num">{{ t('staff_plural') }}</th>
+      <th class="num">{{ t('cost_rate') }}</th><th class="num">{{ t('billing_value') }}</th>
+      <th class="num">{{ t('revenue') }}</th><th class="num">{{ t('fx_gain_loss') }}</th>
+      <th class="num">{{ t('profit') }}</th><th class="num">{{ t('margin') }}</th>
+    </tr></thead>
+    <tbody>
+      {% for p in d.top_projects %}
+      <tr>
+        <td class="muted">{{ loop.index }}</td>
+        <td><a href="/projects/{{ p.id }}"><b>{{ p.name }}</b></a>
+          <div class="faint" style="font-size:.72rem">{{ p.client_name or '' }}</div></td>
+        <td class="num">{{ fmt(p.hours, 1) }}</td>
+        <td class="num muted">{{ p.staff_breakdown|length }}</td>
+        <td class="num">{{ fmt(p.total_cost) }}</td>
+        <td class="num muted">{{ fmt(p.billing_value) }}</td>
+        <td class="num">{{ fmt(p.invoiced) }}</td>
+        <td class="num {% if p.fx_gain_loss >= 0 %}pos{% else %}neg{% endif %}">{{ fmt_signed(p.fx_gain_loss) }}</td>
+        <td class="num {% if p.profit >= 0 %}pos{% else %}neg{% endif %}">{{ fmt(p.profit) }}</td>
+        <td class="num">{{ fmt(p.margin_pct, 1) }}%</td>
+      </tr>
+      {% else %}{{ m.empty_row(10, t) }}{% endfor %}
+    </tbody>
+  </table></div></div>
 </div>
 
 <div class="card">

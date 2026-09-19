@@ -58,6 +58,20 @@ def close_to(a, b, tol=0.01):
     return abs((a or 0) - (b or 0)) <= tol
 
 
+ACCUM_CODES = ('0200', '0220.1', '0230', '0240', '0250', '0260', '0290')
+
+
+def total_accumulated():
+    """Every accumulated-depreciation account summed.
+
+    Depreciation credits the contra account of the asset's CLASS (0250 for
+    computers, 0240 for furniture...), not one lump on 0200, so a test that
+    reads 0200 alone now sees zero. The invariant worth pinning is that the
+    charge lands somewhere in the 02xx family and equals the debit.
+    """
+    return sum(account_balance(c) for c in ACCUM_CODES)
+
+
 # ── Fixture ─────────────────────────────────────────────────────────────────
 # Purchase dates are fixed and far from today on purpose: nothing here may
 # depend on the wall clock, unlike the rate engine's NOT_EXPIRED predicate.
@@ -111,6 +125,9 @@ check('the indirect pool is still exactly 9410/9420/9430',
 check('accumulated depreciation maps to 0200 and is credit-normal',
       get_account_by_code('0200')['id'] == account_id_for('equipment_depreciation')
       and natural_side('0200', 'KA') == 'credit')
+check('every asset class has a credit-normal contra account',
+      all(get_account_by_code(c) and natural_side(c, 'KA') == 'credit'
+          for c in ACCUM_CODES), str(ACCUM_CODES))
 
 print('\n=== Month arithmetic ===')
 check('the purchase month is month 1', _month_index('2026-03-15', '2026-03') == 1)
@@ -191,6 +208,8 @@ check('preview reports it has not been posted yet', prev['already_posted'] is Fa
 check('preview total matches the schedule', close_to(prev['total'], s['total']))
 check('preview names the accounts it would use',
       prev['expense_code'] == '9420.1' and prev['accum_code'] == '0200')
+check('preview names the per-class contra accounts it will credit',
+      prev['accum_codes'] == ['0250'], str(prev['accum_codes']))
 
 print('\n=== Posting ===')
 entry_id, total = post_period_depreciation('2026-06')
@@ -198,7 +217,10 @@ check('posting returns an entry and a total', entry_id and total > 0, str(total)
 check('the expense account is debited',
       close_to(account_balance('9420.1'), total), str(account_balance('9420.1')))
 check('accumulated depreciation is credited',
-      close_to(account_balance('0200'), total), str(account_balance('0200')))
+      close_to(total_accumulated(), total), str(total_accumulated()))
+check('it is credited to the CLASS account, not the 0200 parent',
+      close_to(account_balance('0250'), total) and close_to(account_balance('0200'), 0),
+      f"0250={account_balance('0250')} 0200={account_balance('0200')}")
 check('the posted total equals the schedule', close_to(total, s['total']))
 
 conn = get_db()
@@ -229,7 +251,7 @@ print('\n=== Idempotency ===')
 again_id, again_total = post_period_depreciation('2026-06')
 check('posting the same period twice is a no-op',
       again_id is None and again_total == 0.0)
-check('the balance did not move', close_to(account_balance('0200'), total))
+check('the balance did not move', close_to(total_accumulated(), total))
 conn = get_db()
 live = conn.execute(
     "SELECT COUNT(*) AS n FROM journal_entries WHERE period='2026-06'"
@@ -245,7 +267,7 @@ check('a different period still posts', other_id is not None and other_total > 0
 rev_id = reverse_period_depreciation('2026-05')
 check('reversal returns the storno id', rev_id is not None)
 check('reversal clears the charge',
-      close_to(account_balance('0200'), total), str(account_balance('0200')))
+      close_to(total_accumulated(), total), str(total_accumulated()))
 redo_id, redo_total = post_period_depreciation('2026-05')
 check('a reversed period can be posted again',
       redo_id is not None and close_to(redo_total, other_total))
@@ -295,7 +317,7 @@ try:
     check('a pooled depreciation account is refused', False, 'no exception raised')
 except PostingError as e:
     check('a pooled depreciation account is refused',
-          e.key == 'depreciation_account_in_pool', e.key)
+          e.key == 'account_in_pool', e.key)
 conn = get_db()
 conn.execute("UPDATE accounts SET cost_pool='excluded' WHERE code='9420.1'")
 conn.commit()
@@ -325,12 +347,12 @@ check('nothing was posted for the skipped period',
       depreciation_posted_entry('2026-12') is None)
 
 print('\n=== Reopen ===')
-accum_before_reopen = account_balance('0200')
-reopen_period('2026-11')
+accum_before_reopen = total_accumulated()
+reopen_period('2026-11', allow_hard=True)
 check('the period is open again', get_period_status('2026-11') == 'open')
 check('reopen reversed the depreciation charge',
-      account_balance('0200') < accum_before_reopen,
-      f"{accum_before_reopen} -> {account_balance('0200')}")
+      total_accumulated() < accum_before_reopen,
+      f"{accum_before_reopen} -> {total_accumulated()}")
 check('the depreciation entry is no longer live',
       depreciation_posted_entry('2026-11') is None)
 check('trial balance balances after reopen', get_trial_balance()['is_balanced'])

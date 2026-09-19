@@ -123,6 +123,25 @@
 {% endmacro %}
 
 
+{# The firm's bank account a cash document moves (models/bank_accounts.py).
+   Empty when none is registered, so a form without the register posts as
+   before; otherwise the default UZS account is pre-selected. #}
+{% macro bank_account_select(bank_accounts, t, attrs='', id='') %}
+{%- set default_id = (bank_accounts|selectattr('is_default')|selectattr('currency','equalto','UZS')
+                     |map(attribute='id')|first) or '' -%}
+<div class="field" {% if id %}id="{{ id }}"{% endif %}>
+  <label>{{ t('bank_account') }}</label>
+  <select name="bank_account_id" data-reset data-default="{{ default_id }}" {{ attrs|safe }}>
+    <option value="">—</option>
+    {% for b in bank_accounts %}
+    <option value="{{ b.id }}" data-currency="{{ b.currency }}" {% if b.id == default_id %}selected{% endif %}>
+      {{ b.account_code }} · {{ b.name }}{% if b.account_number %} · {{ b.account_number }}{% endif %}</option>
+    {% endfor %}
+  </select>
+</div>
+{% endmacro %}
+
+
 {% macro text_field(name, label, type='text', value='', required=False, attrs='') %}
 <div class="field">
   <label>{{ label }}{% if required %} *{% endif %}</label>
@@ -152,4 +171,45 @@
   <button class="btn">{{ t('filter') }}</button>
   <a class="btn" href="{{ action }}">{{ t('reset') }}</a>
 </form>
+{% endmacro %}
+
+
+{# On-course traffic light for the time-phased plan lens: on / edge / off / none. #}
+{% macro light_badge(state, t, label=None) %}
+  {%- set cls = {'on':'badge-ok','edge':'badge-warn','off':'badge-bad','none':'badge-draft'}
+                .get(state,'badge-draft') -%}
+  <span class="badge {{ cls }}">{{ label or t('light_' ~ state) }}</span>
+{% endmacro %}
+
+
+{# Column header that toggles the sort. `args` is the current query string
+   minus page/sort/dir so a click keeps the filter and returns to page 1. #}
+{% macro sort_th(key, label, sort, sort_dir, args, cls='') %}
+  {%- set next_dir = 'asc' if (sort == key and sort_dir == 'desc') else 'desc' -%}
+  {%- set qs = dict(args, sort=key, dir=next_dir) -%}
+  <th class="{{ cls }}"><a href="?{{ qs|urlencode }}" style="color:inherit">{{ label }}
+    {%- if sort == key %} <span class="faint">{{ '▲' if sort_dir == 'asc' else '▼' }}</span>{% endif %}</a></th>
+{% endmacro %}
+
+
+{# Pager: page N of M with prev/next and a per-page selector. #}
+{% macro pager(page, total_pages, total_count, per_page, choices, args, t) %}
+{%- set base = args.copy() -%}
+<div class="card-body" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;
+     border-top:1px solid var(--line);font-size:.82rem">
+  <span class="muted">{{ total_count }} · {{ page }} / {{ total_pages }}</span>
+  {%- set prev = dict(base, page=page - 1) -%}
+  {%- set next = dict(base, page=page + 1) -%}
+  <a class="btn btn-sm {% if page <= 1 %}disabled{% endif %}"
+     {% if page > 1 %}href="?{{ prev|urlencode }}"{% endif %}>&laquo; {{ t('prev_page') }}</a>
+  <a class="btn btn-sm {% if page >= total_pages %}disabled{% endif %}"
+     {% if page < total_pages %}href="?{{ next|urlencode }}"{% endif %}>{{ t('next_page') }} &raquo;</a>
+  <form method="get" class="btn-row" style="margin-left:auto">
+    {% for k, v in base.items() if k != 'per_page' %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
+    <label style="margin:0">{{ t('per_page') }}</label>
+    <select name="per_page" style="width:auto" onchange="this.form.submit()">
+      {% for c in choices %}<option value="{{ c }}" {% if c == per_page %}selected{% endif %}>{{ c }}</option>{% endfor %}
+    </select>
+  </form>
+</div>
 {% endmacro %}

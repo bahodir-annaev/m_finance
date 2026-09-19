@@ -14,12 +14,18 @@
         {% endfor %}</select></div>
     <div class="field" style="min-width:200px"><label>{{ t('search') }}</label>
       <input type="search" name="q" value="{{ search }}"></div>
+    <div class="field"><label>{{ t('sort_by') }}</label>
+      <select name="sort">
+        {% for k in sorts %}<option value="{{ k }}" {% if sort==k %}selected{% endif %}>{{ t('sort_' ~ k) }}</option>{% endfor %}
+      </select></div>
     <button class="btn">{{ t('filter') }}</button>
     <a class="btn" href="/projects">{{ t('reset') }}</a>
   </form>
   <div class="table-wrap"><table>
     <thead><tr><th>{{ t('name') }}</th><th>{{ t('client') }}</th><th>{{ t('responsible') }}</th>
-      <th class="num">{{ t('contract_amount') }}</th><th class="num">{{ t('milestones') }}</th>
+      <th class="num">{{ t('contract_amount') }}</th>
+      <th class="num">{{ t('hours') }}</th><th class="num">{{ t('staff_plural') }}</th>
+      <th class="num">{{ t('milestones') }}</th>
       <th>{{ t('start_date') }}</th><th>{{ t('status') }}</th>
       <th>{{ t('plan') }}</th><th style="width:1%"></th></tr></thead>
     <tbody>
@@ -30,14 +36,17 @@
         <td class="muted">{{ r.responsible_name or '—' }}</td>
         <td class="num">{{ fmt(r.contract_amount) }}
           {% if r.currency != 'UZS' %}<span class="faint">{{ r.currency }}</span>{% endif %}</td>
-        <td class="num">{{ r.ms_done }}/{{ r.ms_total }}</td>
+        <td class="num">{{ fmt(r.total_hours, 1) }}</td>
+        <td class="num muted">{{ r.staff_count }}</td>
+        <td class="num">{{ r.ms_done }}/{{ r.ms_total }}
+          {% if r.ms_late %}<span class="badge badge-bad" title="{{ t('late') }}">{{ r.ms_late }}</span>{% endif %}</td>
         <td class="nowrap muted">{{ r.start_date or '—' }}</td>
         <td>{{ m.status_badge(r.status, t) }}</td>
         <td>{% if r.plan_frozen_date %}<span class="badge badge-ok">{{ t('plan_frozen') }}</span>
             {% else %}<span class="badge badge-draft">{{ t('no_plan') }}</span>{% endif %}</td>
         <td>{{ m.edit_btn('projModal', r, t) }}</td>
       </tr>
-      {% else %}{{ m.empty_row(9, t) }}{% endfor %}
+      {% else %}{{ m.empty_row(11, t) }}{% endfor %}
     </tbody>
   </table></div>
 </div>

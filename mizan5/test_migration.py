@@ -113,6 +113,59 @@ check('the vast majority of transactions migrated',
       len(skipped) < rec['v4_transactions'] * 0.05,
       f'{len(skipped)} of {rec["v4_transactions"]}')
 
+print('\n=== v5 reproduces v4 direction on the migrated data ===')
+# v4 stored `direction` on every row; v5 derives it (models/direction.py). The
+# aggregates below are what a user actually read off v4's cash-flow page, so
+# comparing them is a stronger check than matching row for row — and it needs
+# no id map between the two databases.
+import sqlite3                                                        # noqa: E402
+from models.reports import get_cash_flow                              # noqa: E402
+
+INCOME = "('tushum','mizan_monthly','yakuniy_hisob')"
+v4 = sqlite3.connect(V4_COPY)
+v4.row_factory = sqlite3.Row
+v4_income = v4.execute(
+    f"SELECT COALESCE(SUM(paid),0) AS s FROM transactions"
+    f" WHERE paid > 0 AND tx_type IN {INCOME}").fetchone()['s']
+v4_ext_out = v4.execute(
+    f"SELECT COALESCE(SUM(paid),0) AS s FROM transactions"
+    f" WHERE paid > 0 AND direction='external' AND tx_type NOT IN {INCOME}"
+).fetchone()['s']
+v4_int_out = v4.execute(
+    f"SELECT COALESCE(SUM(paid),0) AS s FROM transactions"
+    f" WHERE paid > 0 AND direction='internal' AND tx_type NOT IN {INCOME}"
+).fetchone()['s']
+# Rows the migration itself could not route as external: with no counterparty
+# name to hang a supplier invoice on, import_v4 falls back to the bare cash_out
+# shape, which is the internal shape. Those land in internal by construction.
+v4_ext_no_cp = v4.execute(
+    f"SELECT COALESCE(SUM(paid),0) AS s FROM transactions"
+    f" WHERE paid > 0 AND direction='external' AND tx_type NOT IN {INCOME}"
+    f"   AND COALESCE(NULLIF(TRIM(COALESCE(paid_to,'')),''),"
+    f"                NULLIF(TRIM(COALESCE(client,'')),'')) IS NULL").fetchone()['s']
+v4.close()
+
+td = get_cash_flow()['totals_by_direction']
+print(f"  v4 income        {v4_income:>18,.2f}   v5 external in   {td['external']['in']:>18,.2f}")
+print(f"  v4 external out  {v4_ext_out:>18,.2f}   v5 external out  {td['external']['out']:>18,.2f}")
+print(f"  v4 internal out  {v4_int_out:>18,.2f}   v5 internal out  {td['internal']['out']:>18,.2f}")
+if v4_ext_no_cp:
+    print(f"  of which v4 external rows with no counterparty: {v4_ext_no_cp:,.2f}"
+          f"  (migrated as internal)")
+
+check('v4 client receipts come back as external inflow',
+      abs(td['external']['in'] - v4_income) <= tolerance,
+      f"{td['external']['in']:,.2f} vs {v4_income:,.2f}")
+check('v4 external costs come back as external outflow',
+      abs(td['external']['out'] - (v4_ext_out - v4_ext_no_cp)) <= tolerance,
+      f"{td['external']['out']:,.2f} vs {v4_ext_out - v4_ext_no_cp:,.2f}")
+check('v4 internal costs come back as internal outflow',
+      abs(td['internal']['out'] - (v4_int_out + v4_ext_no_cp)) <= tolerance,
+      f"{td['internal']['out']:,.2f} vs {v4_int_out + v4_ext_no_cp:,.2f}")
+check('the split still adds up to the undivided cash flow',
+      all(abs(sum(r[d + '_out'] for d in ('external', 'internal', 'financing'))
+              - r['outflow']) < 0.005 for r in get_cash_flow()['rows']))
+
 print('\n=== The rate engine still works on migrated data ===')
 from models.staff import get_rates_overview                            # noqa: E402
 ov = get_rates_overview()

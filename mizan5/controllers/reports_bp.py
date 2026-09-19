@@ -4,7 +4,7 @@ from flask_login import login_required
 
 from models import (
     get_pnl, get_balance_sheet, get_cash_flow, get_aging, aging_by_counterparty,
-    get_vat_report, today_str, cash_by_account,
+    get_vat_report, today_str, cash_by_account, payment_method_summary,
 )
 from utils import render_page, t
 
@@ -42,6 +42,7 @@ def cashflow():
     return render_page('cashflow', 'cashflow.html',
                        cf=get_cash_flow(date_from, date_to),
                        accounts=cash_by_account(date_to),
+                       pay_summary=payment_method_summary(date_from, date_to),
                        date_from=date_from, date_to=date_to, title=t('nav_cashflow'))
 
 

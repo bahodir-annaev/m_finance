@@ -33,6 +33,29 @@ def cash_account_purpose(doc):
     return 'cash_bank'
 
 
+def cash_account_for(conn, doc):
+    """(money account id, bank_account_id) for a cash document.
+
+    A document that names one of the firm's bank accounts moves *that*
+    account's ledger account — a USD bank account is registered against 5210,
+    so the currency routing is explicit rather than inferred. Without one the
+    purpose rule above decides and the analytic stays empty; post_entry() then
+    refuses the line if the ledger account has bank accounts registered.
+    """
+    bank_id = doc.get('bank_account_id')
+    if not bank_id:
+        return account_id_for(cash_account_purpose(doc), conn), None
+    bank = conn.execute("SELECT * FROM bank_accounts WHERE id=?", (bank_id,)).fetchone()
+    if not bank:
+        raise PostingError('bank_account_mismatch', str(bank_id))
+    if not bank['is_active']:
+        raise PostingError('bank_account_inactive', bank['name'])
+    if (bank['currency'] or 'UZS') != (doc.get('currency') or 'UZS'):
+        raise PostingError('bank_account_currency',
+                           f"{bank['name']} ({bank['currency']})")
+    return bank['account_id'], bank['id']
+
+
 def _fx(doc):
     """Foreign-currency memo fields for a line, or empty for plain UZS."""
     if (doc.get('currency') or 'UZS') == 'UZS':
@@ -45,6 +68,28 @@ def _line(account_id, debit=0, credit=0, **kw):
     ln = {'account_id': account_id, 'debit': debit, 'credit': credit}
     ln.update(kw)
     return ln
+
+
+def assert_not_pooled(purpose, conn):
+    """Resolve a purpose, refusing an account that sits in the overhead pool.
+
+    THE RULE this enforces: an account may not carry cost_pool='indirect' if
+    the same cost is already modeled by a register that calculate_hourly_rate()
+    reads — the equipment register, the staff register, the license register.
+    Such a cost would then be charged twice: once from its register, once from
+    the ledger pool, with no credit to offset it.
+
+    The accounts are seeded 'excluded' and init_db() re-corrects them, but the
+    flag is editable on /accounts. This is the guard that stops a well-meaning
+    edit there from quietly inflating every rate in the firm. Callers:
+    depreciation (9420.1), payroll's admin leg (9420.2), licenses (9420.3).
+    """
+    account_id = account_id_for(purpose, conn)
+    row = conn.execute("SELECT code, cost_pool FROM accounts WHERE id=?",
+                       (account_id,)).fetchone()
+    if row and row['cost_pool'] == 'indirect':
+        raise PostingError('account_in_pool', row['code'])
+    return account_id
 
 
 # ========== 5.1 Sales invoice — счёт-фактура выданный ==========
@@ -146,7 +191,10 @@ def _cash_counter_lines(conn, doc, is_inflow):
                       (Cr 6310 received / Dr 4310 issued)
 
     Anything left over with no counterparty at all falls to other operating
-    income/expense rather than silently unbalancing the entry.
+    income (9390) or expense (9430) rather than silently unbalancing the entry.
+    Those are two different accounts on purpose: 9430 is in the overhead pool,
+    which nets credits against debits, so an unattributed *receipt* booked
+    there would subtract itself from overhead and lower every man-hour rate.
     """
     fx = _fx(doc)
     total = round(_num(doc['total']), 2)
@@ -186,7 +234,7 @@ def _cash_counter_lines(conn, doc, is_inflow):
         if doc.get('counterparty_id'):
             purpose = 'advances_received' if is_inflow else 'advances_issued'
         else:
-            purpose = 'other_opex'
+            purpose = 'other_income' if is_inflow else 'other_opex'
         counter.append(_line(
             account_id_for(purpose, conn),
             credit=remainder if is_inflow else 0,
@@ -202,10 +250,11 @@ def _cash_in(conn, doc):
     total = round(_num(doc['total']), 2)
     if total <= 0:
         raise PostingError('doc_amount_required', doc.get('number', ''))
-    cash = account_id_for(cash_account_purpose(doc), conn)
+    cash, bank_id = cash_account_for(conn, doc)
     lines = [_line(cash, debit=total,
                    counterparty_id=doc.get('counterparty_id'),
                    project_id=doc.get('project_id'),
+                   bank_account_id=bank_id,
                    description=doc.get('description') or doc['number'],
                    amount_cur=doc.get('total_cur'), **_fx(doc))]
     lines += _cash_counter_lines(conn, doc, is_inflow=True)
@@ -217,11 +266,12 @@ def _cash_out(conn, doc):
     total = round(_num(doc['total']), 2)
     if total <= 0:
         raise PostingError('doc_amount_required', doc.get('number', ''))
-    cash = account_id_for(cash_account_purpose(doc), conn)
+    cash, bank_id = cash_account_for(conn, doc)
     lines = _cash_counter_lines(conn, doc, is_inflow=False)
     lines.append(_line(cash, credit=total,
                        counterparty_id=doc.get('counterparty_id'),
                        project_id=doc.get('project_id'),
+                       bank_account_id=bank_id,
                        description=doc.get('description') or doc['number'],
                        amount_cur=doc.get('total_cur'), **_fx(doc)))
     return lines, f"Pul chiqimi {doc['number']}"
@@ -232,19 +282,27 @@ def _cash_out(conn, doc):
 def _payroll(conn, doc):
     """Accrue one period's payroll from its per-employee lines.
 
-        Dr 2010 (production) / 9420 (admin)   gross + social   <- employer cost
-        Cr 6710                               gross            <- owed to staff
-        Dr 6710 / Cr 6420.1                   PIT              <- withheld
-        Cr 6520                               social           <- employer tax
+        Dr 2010 (production) / 9420.2 (admin)  gross + social  <- employer cost
+        Cr 6710                                gross           <- owed to staff
+        Dr 6710 / Cr 6420.1                    PIT             <- withheld
+        Cr 6520                                social          <- employer tax
 
     6710 therefore ends up holding exactly the net pay, which the remittance
     cash_out then clears.
+
+    The admin leg goes to 9420.2, NOT to 9420. Administrative salary is already
+    charged to every production rate as `admin_share`, computed from the staff
+    register by staff.admin_total_cost(). 9420 is the overhead pool, so posting
+    it there would charge the same salary a second time. Measured by replaying
+    the real v4 register (27 production, 11 admin) into v5 and flipping the
+    flag: +183M UZS/month on the pool, +13% on every cost rate and therefore
+    on every quoted price. See assert_not_pooled().
     """
     if not doc['lines']:
         raise PostingError('doc_no_lines', doc.get('number', ''))
 
     production = account_id_for('production_cost', conn)
-    admin = account_id_for('admin_expense', conn)
+    admin = assert_not_pooled('admin_salary_expense', conn)
     payable = account_id_for('payroll_payable', conn)
     pit_acc = account_id_for('pit_payable', conn)
     social_acc = account_id_for('social_payable', conn)
@@ -315,8 +373,9 @@ def _loan(conn, doc):
         raise PostingError('doc_loan_required', str(doc['loan_id']))
 
     total = round(_num(doc['total']), 2)
-    cash = account_id_for(cash_account_purpose(doc), conn)
+    cash, bank_id = cash_account_for(conn, doc)
     fx = _fx(doc)
+    fx['bank_account_id'] = bank_id
     if loan['loan_type'] == 'olgan':
         liability = account_id_for(
             'loan_long_in' if loan['term'] == 'long' else 'loan_short_in', conn)

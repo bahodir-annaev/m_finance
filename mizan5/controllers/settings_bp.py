@@ -1,5 +1,8 @@
-"""Settings, exchange rates and user administration."""
-from flask import Blueprint, request, redirect, flash
+"""Settings, exchange rates (manual + CBU fetch) and user administration."""
+import json
+import urllib.request
+
+from flask import Blueprint, request, redirect, flash, jsonify
 from flask_login import login_required, current_user
 from werkzeug.security import generate_password_hash
 
@@ -18,9 +21,11 @@ def settings_page():
         settings = [dict(r) for r in conn.execute(
             "SELECT * FROM settings ORDER BY key")]
         rates = [dict(r) for r in conn.execute(
-            "SELECT * FROM exchange_rates ORDER BY date DESC LIMIT 40")]
+            "SELECT * FROM exchange_rates ORDER BY date DESC")]
+        # Only an admin may see the user register (the card is hidden for others).
         users = [dict(r) for r in conn.execute(
-            "SELECT id, username, role, is_active, created_at FROM users ORDER BY username")]
+            "SELECT id, username, role, is_active, created_at FROM users ORDER BY username")
+        ] if current_user.can('admin') else []
         lookups = {name: [dict(r) for r in conn.execute(
             f"SELECT * FROM {name} ORDER BY sort_order, code")]
             for name in ('payment_types', 'work_types', 'departments', 'staff_roles')}
@@ -71,6 +76,29 @@ def rate_save():
     return redirect('/settings')
 
 
+CBU_URL = 'https://cbu.uz/oz/arkhiv-kursov-valyut/json/USD/{date}/'
+
+
+@bp.route('/settings/fetch-rate')
+@login_required
+@require_level('manager')
+def fetch_rate():
+    """The Central Bank's official UZS/USD rate for a date, as JSON.
+
+    Looked up on demand from the browser; nothing is stored until the user
+    saves it, so a network failure only disables the button.
+    """
+    d = (request.args.get('date') or '').strip()
+    if len(d) != 10:
+        return jsonify({'error': 'date required'}), 400
+    try:
+        with urllib.request.urlopen(CBU_URL.format(date=d), timeout=8) as resp:
+            data = json.loads(resp.read().decode())
+        return jsonify({'rate': float(data[0]['Rate']), 'date': data[0].get('Date', d)})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 502
+
+
 @bp.route('/settings/user', methods=['POST'])
 @login_required
 @require_level('admin')
@@ -80,6 +108,12 @@ def user_save():
     password = request.form.get('password') or ''
     role = request.form.get('role') or 'viewer'
     is_active = 1 if request.form.get('is_active') else 0
+
+    # Nobody may lock themselves out — deactivating or demoting the account
+    # that is doing the editing would leave the app with no admin session.
+    if user_id and user_id == current_user.id and (not is_active or role != 'admin'):
+        flash(f'<div class="alert alert-warn">{t("user_self_lock")}</div>', 'warn')
+        return redirect('/settings')
 
     conn = get_db()
     try:

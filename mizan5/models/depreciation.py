@@ -5,14 +5,16 @@ expense and the balance sheet shows accumulated depreciation. Until this
 existed, both accounts sat at zero forever and
 `staff.depreciation_reconciliation()` had nothing to reconcile.
 
-THE ONE RULE: the depreciation expense account must never carry
-`cost_pool='indirect'`. The equipment register already charges these assets to
-staff rates through `personal_eq` / `general_eq` in `calculate_hourly_rate()`;
-if the expense also joined the overhead pool, `ledger_overhead_monthly()` would
-pick up the debit while the 0200 credit (cost_pool=None) would not offset it,
-and every asset would be counted twice. Measured before the split: one
-15,000,000 laptop moved an employee's cost rate from 73,744 to 93,018.
-`post_period_depreciation()` refuses to post if that flag is ever set.
+THE RULE (shared, see `posting.assert_not_pooled`): the depreciation expense
+account must never carry `cost_pool='indirect'`. The equipment register already
+charges these assets to staff rates through `personal_eq` / `general_eq` in
+`calculate_hourly_rate()`; if the expense also joined the overhead pool,
+`ledger_overhead_monthly()` would pick up the debit while the 0200 credit
+(cost_pool=None) would not offset it, and every asset would be counted twice.
+Measured before the split: one 15,000,000 laptop moved an employee's cost rate
+from 73,744 to 93,018. `post_period_depreciation()` refuses to post if that
+flag is ever set. The same guard now protects admin salary (9420.2) and
+licenses (9420.3), which are register-modeled for exactly the same reason.
 
 The register stays the rate engine's source. This module exists for the
 financial statements only.
@@ -26,12 +28,17 @@ Out of scope: asset disposal. Setting `is_active=0` mid-life simply stops the
 charge and leaves accumulated < cost on the books. Real disposal would be
 `Dr 0200 / Dr 9431.1 loss / Cr 0150` and belongs in its own routine.
 """
-from calendar import monthrange
 
-from .base import get_db, today_str, period_of, _write_audit
-from .ledger import (
-    PostingError, account_id_for, post_entry, reverse_entry,
+import re
+
+from .base import (
+    get_db, today_str, period_end, period_of, asset_class_map,
+    default_lifespan_for, _write_audit,
 )
+from .ledger import (
+    PostingError, account_id_for, get_account_by_code, post_entry, reverse_entry,
+)
+from .posting import assert_not_pooled
 
 # Memo prefix is the idempotency token — the same mechanism reopen_period()
 # uses to find a closing entry. The storno memo deliberately does NOT start
@@ -52,8 +59,105 @@ def _num(v):
 
 def period_bounds(period):
     """'YYYY-MM' → ('YYYY-MM-01', 'YYYY-MM-<last>')."""
-    y, m = int(period[:4]), int(period[5:7])
-    return f'{y:04d}-{m:02d}-01', f'{y:04d}-{m:02d}-{monthrange(y, m)[1]:02d}'
+    return f'{period}-01', period_end(period)
+
+
+# ── Asset classification ────────────────────────────────────────────────────
+# Ordered rules, first match wins. Names in the register are a mix of Russian,
+# Uzbek and English, and a machine's name often mentions its peripherals
+# ("Ноутбук … BenQ GW2780 2x"), so the machine patterns are matched BEFORE the
+# accessory ones — otherwise a laptop would be classified by its monitor.
+#
+# This is a suggestion engine, not an authority: classify_register() reports
+# every assignment for review and anything it cannot place becomes 'other'
+# rather than being guessed at.
+CLASSIFY_RULES = [
+    # Whole machines first — these tokens lead the name.
+    ('computer', r'ноутбук|noutbuk|laptop|моноблок|monoblok|компьютер|komp[yu]?ter'
+                 r'|\bпк\b|\bpc\b|imac|macbook|систем\w*\s*блок|sistem\s*blok'),
+    # Then displays, peripherals and print/scan — data-processing equipment,
+    # which shares the computer class (and account 0150) with the machines.
+    ('computer', r'монитор|monitor|benq|dell\s*u\d|redmi\s*a\d|\bups\b|ion\s*v-'
+                 r'|avt\d|ks\d{3,}|\ba-?1500\b|logitech|мышь|клав|mouse|keyboard'
+                 r'|sichqon|klaviatura|принтер|printer|мфу|\bmfu\b|сканер|skaner'
+                 r'|canon|epson'),
+    # ИНВ-М is the register's own furniture inventory prefix (М = мебель) and is
+    # the single most reliable signal in the data.
+    ('furniture', r'инв-м|стол|кресло|стул|тумб|диван|шкаф|полк|мебел'
+                  r'|stol|stul|shkaf|divan|kreslo|tumba|javon|mebel|sofa'
+                  r'|\bdesk\b|\bchair\b|cabinet'),
+    # 0140 is "мебель и офисное оборудование" — office equipment lives here too.
+    ('furniture', r'телевизор|televizor|\btv\b|проектор|proyektor|projector'),
+    ('vehicle', r'автомобил|avtomobil|транспорт|\bcobalt\b|\bdamas\b|\blabo\b'),
+    ('machinery', r'кондиционер|kondi[ts]+ioner|станок|dastgoh|генератор|generator'),
+]
+
+DEFAULT_ASSET_CLASS = 'other'
+
+
+def classify_asset(name):
+    """Best-guess asset class from an asset's name, or 'other'.
+
+    Returns (class_code, matched_rule_index or None) so a caller can tell a
+    confident match from a fallback.
+    """
+    text = (name or '').lower()
+    for i, (code, pattern) in enumerate(CLASSIFY_RULES):
+        if re.search(pattern, text):
+            return code, i
+    return DEFAULT_ASSET_CLASS, None
+
+
+def classify_register(apply=False, only_unclassified=True, conn=None):
+    """Suggest an asset class for every row in the register.
+
+    Returns a full report — one entry per asset with its current class, the
+    suggested one, and whether the suggestion was a keyword match or the
+    'other' fallback. Nothing is written unless apply=True.
+
+    only_unclassified guards the common case: re-running this must not undo
+    a class someone corrected by hand. Pass False to re-suggest everything.
+    """
+    own = conn is None
+    conn = conn or get_db()
+    try:
+        rows = conn.execute(
+            "SELECT id, name, asset_class, price, quantity FROM equipment"
+            " ORDER BY id").fetchall()
+        report, changed = [], 0
+        for r in rows:
+            current = r['asset_class'] or DEFAULT_ASSET_CLASS
+            suggested, rule = classify_asset(r['name'])
+            skip = only_unclassified and current not in (None, '', DEFAULT_ASSET_CLASS)
+            will_change = (not skip) and suggested != current
+            report.append({
+                'equipment_id': r['id'], 'name': r['name'],
+                'value': _num(r['price']) * (r['quantity'] or 1),
+                'current': current, 'suggested': suggested,
+                'matched': rule is not None,
+                'changed': will_change and apply, 'skipped': skip,
+            })
+            if will_change and apply:
+                conn.execute("UPDATE equipment SET asset_class=?, updated_at=?"
+                             " WHERE id=?", (suggested, today_str(), r['id']))
+                changed += 1
+        if apply:
+            conn.commit()
+        summary = {}
+        for e in report:
+            key = e['suggested'] if not e['skipped'] else e['current']
+            s = summary.setdefault(key, {'asset_class': key, 'n': 0, 'value': 0.0,
+                                         'fallback': 0})
+            s['n'] += 1
+            s['value'] += e['value']
+            if not e['matched']:
+                s['fallback'] += 1
+        return {'rows': report, 'changed': changed, 'applied': apply,
+                'summary': sorted(summary.values(), key=lambda s: -s['value']),
+                'unmatched': [e for e in report if not e['matched']]}
+    finally:
+        if own:
+            conn.close()
 
 
 def _month_index(purchase_date, period):
@@ -90,6 +194,12 @@ def depreciation_schedule(period, conn=None):
     the rate engine charges those assets forever (staff.NOT_EXPIRED treats a
     NULL date as never expiring), so they are a permanent, explainable gap
     between register and ledger.
+
+    The per-row lifespan_months is authoritative, never the class default. A
+    row whose life differs from its class default is reported in 'off_default'
+    so the divergence is visible — editing a class default must not silently
+    re-depreciate assets already on the books, but nor should the difference
+    go unnoticed.
     """
     own = conn is None
     conn = conn or get_db()
@@ -97,20 +207,30 @@ def depreciation_schedule(period, conn=None):
         rows = conn.execute(
             "SELECT e.*, s.name AS staff_name FROM equipment e"
             " LEFT JOIN staff s ON s.id = e.staff_id"
-            " WHERE e.is_active = 1 ORDER BY e.kind, e.name").fetchall()
+            " WHERE e.is_active = 1 ORDER BY e.asset_class, e.kind, e.name").fetchall()
+        classes = asset_class_map(conn)
     finally:
         if own:
             conn.close()
 
     start, end = period_bounds(period)
-    out, skipped = [], []
+    out, skipped, off_default = [], [], []
     register_cost = 0.0
 
     for r in rows:
         cost = _num(r['price']) * (r['quantity'] or 1)
         register_cost += cost
         life = int(r['lifespan_months'] or 0)
+        cls = r['asset_class'] or 'other'
+        cls_row = classes.get(cls, {})
+        cls_default = int(cls_row.get('default_lifespan_months') or 0)
+        if life > 0 and cls_default > 0 and life != cls_default:
+            off_default.append({'equipment_id': r['id'], 'name': r['name'],
+                                'asset_class': cls, 'lifespan_months': life,
+                                'class_default': cls_default})
         base = {'equipment_id': r['id'], 'name': r['name'], 'kind': r['kind'],
+                'asset_class': cls,
+                'accum_account': cls_row.get('accum_account'),
                 'staff_id': r['staff_id'], 'staff_name': r['staff_name'],
                 'cost': cost}
 
@@ -151,8 +271,21 @@ def depreciation_schedule(period, conn=None):
             'is_final_month': n == life,
         })
 
+    by_class = {}
+    for r in out:
+        c = by_class.setdefault(r['asset_class'],
+                                {'asset_class': r['asset_class'],
+                                 'accum_account': r['accum_account'],
+                                 'charge': 0.0, 'cost': 0.0, 'n': 0})
+        c['charge'] += r['charge']
+        c['cost'] += r['cost']
+        c['n'] += 1
+    for c in by_class.values():
+        c['charge'] = round(c['charge'], 2)
+
     return {'period': period, 'start': start, 'end': end,
-            'rows': out, 'skipped': skipped,
+            'rows': out, 'skipped': skipped, 'off_default': off_default,
+            'by_class': sorted(by_class.values(), key=lambda c: c['asset_class']),
             'total': round(sum(r['charge'] for r in out), 2),
             'register_cost': register_cost,
             'accumulated_after': round(sum(r['accumulated_after'] for r in out), 2)}
@@ -186,25 +319,42 @@ def _expense_account(conn):
     """Resolve the depreciation expense account, refusing a pooled one.
 
     This guard is the whole feature. Without it a future admin could flip the
-    account's cost_pool in the UI and quietly double every rate.
+    account's cost_pool in the UI and quietly double every rate. The check now
+    lives in posting.assert_not_pooled() so payroll and licenses share it.
     """
-    account_id = account_id_for(EXPENSE_PURPOSE, conn)
-    row = conn.execute("SELECT code, cost_pool FROM accounts WHERE id=?",
-                       (account_id,)).fetchone()
-    if row and row['cost_pool'] == 'indirect':
-        raise PostingError('depreciation_account_in_pool', row['code'])
-    return account_id
+    return assert_not_pooled(EXPENSE_PURPOSE, conn)
+
+
+def _accum_account_id(accum_code, conn):
+    """The class's accumulated-depreciation account, falling back to 0200.
+
+    A class with no accum_account configured, or one naming an account that
+    does not exist, must still post — landing on the 0200 parent is wrong in
+    presentation but not in arithmetic, whereas refusing would block the close.
+    """
+    if accum_code:
+        row = get_account_by_code(accum_code, conn)
+        if row:
+            return row['id']
+    return account_id_for(ACCUM_PURPOSE, conn)
 
 
 def _build_lines(schedule, conn):
-    """Debit per employee (personal assets) plus one general line; credit 0200.
+    """Debit per employee (personal) plus one general line; credit per CLASS.
+
+    Two different groupings on the two sides of the same entry, on purpose:
+
+    - The DEBIT side groups by who bears the cost (staff / general), because
+      that is the dimension the rate engine allocates on.
+    - The CREDIT side groups by asset class, because each class has its own
+      contra account (0250 computers, 0240 furniture, 0230 machinery …). One
+      lump on 0200 cannot tell you what is worn out.
 
     Personal lines carry staff_id so a future ledger-driven rate engine can
     attribute the charge per person. Per-asset lines would bloat the entry —
     the asset-level detail is reproducible from depreciation_schedule().
     """
     expense_id = _expense_account(conn)
-    accum_id = account_id_for(ACCUM_PURPOSE, conn)
 
     by_staff, general = {}, 0.0
     names = {}
@@ -228,12 +378,33 @@ def _build_lines(schedule, conn):
         lines.append({'account_id': expense_id, 'debit': general,
                       'description': 'Amortizatsiya — umumiy jihozlar'})
 
-    # Credit the sum of the ROUNDED debits, so the entry balances exactly
-    # rather than merely within post_entry's 1 UZS tolerance.
     total = round(sum(l['debit'] for l in lines), 2)
-    if total > 0:
-        lines.append({'account_id': accum_id, 'credit': total,
-                      'description': f"Amortizatsiya {schedule['period']}"})
+    if total <= 0:
+        return lines, total
+
+    # The credits must sum to the ROUNDED debit total, so the entry balances
+    # exactly rather than merely within post_entry's 1 UZS tolerance. Rounding
+    # each class independently can drift by a tiyin per class, so the largest
+    # class absorbs the remainder.
+    credits = []
+    for c in schedule['by_class']:
+        amount = round(c['charge'], 2)
+        if amount <= 0:
+            continue
+        credits.append({'account_id': _accum_account_id(c['accum_account'], conn),
+                        'credit': amount, 'asset_class': c['asset_class'],
+                        'description': f"Amortizatsiya {schedule['period']}"
+                                       f" — {c['asset_class']}"})
+    if not credits:
+        credits = [{'account_id': _accum_account_id(None, conn), 'credit': total,
+                    'description': f"Amortizatsiya {schedule['period']}"}]
+    drift = round(total - sum(c['credit'] for c in credits), 2)
+    if drift:
+        biggest = max(credits, key=lambda c: c['credit'])
+        biggest['credit'] = round(biggest['credit'] + drift, 2)
+    for c in credits:
+        c.pop('asset_class', None)
+    lines.extend(credits)
     return lines, total
 
 
@@ -265,11 +436,17 @@ def depreciation_preview(period=None, conn=None):
         if own:
             conn.close()
 
+    # accum_code is the FALLBACK (0200); accum_codes is what the entry will
+    # actually credit, one per asset class present in the schedule. Reporting
+    # only the fallback would tell the periods page the wrong accounts.
+    accum_codes = sorted({c['accum_account'] or (accum_row['code'] if accum_row else '0200')
+                          for c in schedule['by_class']})
     return {'period': period, 'schedule': schedule, 'lines': lines,
             'total': total, 'error': error,
             'already_posted': entry_id is not None, 'entry_id': entry_id,
             'expense_code': expense_row['code'] if expense_row else None,
-            'accum_code': accum_row['code'] if accum_row else None}
+            'accum_code': accum_row['code'] if accum_row else None,
+            'accum_codes': accum_codes}
 
 
 def post_period_depreciation(period, memo=None):
@@ -279,7 +456,7 @@ def post_period_depreciation(period, memo=None):
     depreciate OR the period already carries a live depreciation entry —
     running twice is a no-op, never a double charge.
 
-    Raises PostingError('depreciation_account_in_pool') if the expense account
+    Raises PostingError('account_in_pool') if the expense account
     has been flagged indirect, and 'ledger_period_closed' (via post_entry) for
     a closed period.
     """

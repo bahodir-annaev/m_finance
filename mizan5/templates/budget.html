@@ -16,6 +16,68 @@
   <div class="tile"><div class="label">{{ t('no_plan') }}</div>
     <div class="value">{{ ov.unplanned_count }}</div>
     <div class="sub">{{ t('no_plan') }}</div></div>
+  <div class="tile {% if ov.light_counts.off > 0 %}bad{% elif ov.light_counts.on > 0 %}ok{% endif %}">
+    <div class="label">{{ t('on_course') }}</div>
+    <div class="value">{{ ov.light_counts.on }} / {{ ov.light_counts.on + ov.light_counts.edge + ov.light_counts.off }}</div>
+    <div class="sub">{{ t('light_edge') }}: {{ ov.light_counts.edge }} · {{ t('light_off') }}: {{ ov.light_counts.off }}
+      · {{ t('light_none') }}: {{ ov.light_counts.none }}</div></div>
+  <div class="tile {% if ov.to_date_totals.fact_profit >= ov.to_date_totals.plan_profit %}ok{% else %}bad{% endif %}">
+    <div class="label">{{ t('to_date') }} — {{ t('profit') }}</div>
+    <div class="value">{{ fmt(ov.to_date_totals.fact_profit) }}</div>
+    <div class="sub">{{ t('plan') }}: {{ fmt(ov.to_date_totals.plan_profit) }}</div></div>
+</div>
+
+{# ── Time-phased lens: are we where we should be by now? ── #}
+<div class="card">
+  <div class="card-head"><h2>{{ t('to_date') }} — {{ t('plan') }} / {{ t('fact') }}</h2>
+    <span class="hint">{{ t('to_date_note') }}</span></div>
+  <div class="table-wrap"><table>
+    <thead><tr>
+      <th>{{ t('project') }}</th><th>{{ t('on_course') }}</th>
+      <th>{{ t('milestones') }}</th><th>{{ t('period') }}</th>
+      <th class="num">{{ t('plan') }} {{ t('income') }}</th><th class="num">{{ t('fact') }} {{ t('income') }}</th>
+      <th class="num">{{ t('plan') }} {{ t('expense') }}</th><th class="num">{{ t('fact') }} {{ t('expense') }}</th>
+      <th class="num">{{ t('plan') }} {{ t('profit') }}</th><th class="num">{{ t('fact') }} {{ t('profit') }}</th>
+      <th class="num">{{ t('td_profit_drift') }}</th><th class="num">{{ t('td_collections') }}</th>
+    </tr></thead>
+    <tbody>
+      {% for r in ov.rows %}
+      <tr>
+        <td><a href="/projects/{{ r.id }}"><b>{{ r.name }}</b></a>
+          {% if r.any_late %}<span class="badge badge-bad">{{ t('late') }}</span>{% endif %}</td>
+        <td>{{ m.light_badge(r.light.headline, t) }}
+          <div style="display:flex;gap:3px;margin-top:3px">
+            {{ m.light_badge(r.light.money, t, t('light_money')) }}
+            {{ m.light_badge(r.light.schedule, t, t('light_schedule')) }}
+            {{ m.light_badge(r.light.collections, t, t('light_collections')) }}</div></td>
+        <td class="num muted">{{ r.ms_done }}/{{ r.ms_total }}</td>
+        <td class="nowrap muted">{{ r.months_range or '—' }}</td>
+        <td class="num muted">{{ fmt(r.to_date.plan_income) }}</td>
+        <td class="num">{{ fmt(r.to_date.fact_income) }}</td>
+        <td class="num muted">{{ fmt(r.to_date.plan_expense) }}</td>
+        <td class="num">{{ fmt(r.to_date.fact_expense) }}</td>
+        <td class="num muted">{{ fmt(r.to_date.plan_profit) }}</td>
+        <td class="num {% if r.to_date.fact_profit >= 0 %}pos{% else %}neg{% endif %}">{{ fmt(r.to_date.fact_profit) }}</td>
+        <td class="num">{% if r.to_date.profit_drift is not none %}
+          <span class="{% if r.to_date.profit_drift >= -5 %}pos{% else %}neg{% endif %}">{{ fmt(r.to_date.profit_drift, 1) }}%</span>
+          {% else %}—{% endif %}</td>
+        <td class="num">{% if r.to_date.income_ratio is not none %}{{ fmt(r.to_date.income_ratio * 100, 0) }}%{% else %}—{% endif %}</td>
+      </tr>
+      {% else %}{{ m.empty_row(12, t) }}{% endfor %}
+    </tbody>
+    {% if ov.rows %}
+    <tfoot><tr class="total-row">
+      <td colspan="4">{{ t('total') }}</td>
+      <td class="num">{{ fmt(ov.to_date_totals.plan_income) }}</td>
+      <td class="num">{{ fmt(ov.to_date_totals.fact_income) }}</td>
+      <td class="num">{{ fmt(ov.to_date_totals.plan_expense) }}</td>
+      <td class="num">{{ fmt(ov.to_date_totals.fact_expense) }}</td>
+      <td class="num">{{ fmt(ov.to_date_totals.plan_profit) }}</td>
+      <td class="num">{{ fmt(ov.to_date_totals.fact_profit) }}</td>
+      <td colspan="2"></td>
+    </tr></tfoot>
+    {% endif %}
+  </table></div>
 </div>
 
 <div class="card">

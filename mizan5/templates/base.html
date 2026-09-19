@@ -67,6 +67,7 @@ h1{font-size:1.4rem} h2{font-size:1.1rem} h3{font-size:.95rem}
 /* ── Tables ─────────────────────────────────────────────── */
 .table-wrap{overflow-x:auto}
 table{width:100%;border-collapse:collapse;font-size:.85rem}
+th a{text-decoration:none}
 th{background:#f8fafc;text-align:left;padding:9px 12px;font-weight:600;color:var(--muted);
    border-bottom:1px solid var(--line);white-space:nowrap;font-size:.78rem;
    text-transform:uppercase;letter-spacing:.03em}
@@ -91,7 +92,7 @@ tr.group-row td{background:#f1f5f9;font-weight:600;font-size:.8rem}
 .btn-danger:hover{filter:brightness(.93)}
 .btn-sm{padding:4px 9px;font-size:.78rem}
 .btn-icon{padding:4px 8px;font-size:.85rem;line-height:1}
-.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn:disabled,.btn.disabled{opacity:.5;cursor:not-allowed;pointer-events:none}
 .btn-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 
 /* ── Forms ──────────────────────────────────────────────── */
@@ -124,6 +125,9 @@ input[readonly]{background:#f8fafc;color:var(--muted)}
 .badge-ok{background:var(--ok-soft);color:#065f46}
 .badge-bad{background:var(--bad-soft);color:#991b1b}
 .badge-info{background:var(--info-soft);color:#1e40af}
+.badge-external{background:var(--info-soft);color:#1e40af}
+.badge-internal{background:#f1f5f9;color:#475569}
+.badge-financing{background:var(--warn-soft);color:#92400e}
 
 /* ── Alerts ─────────────────────────────────────────────── */
 .alert{padding:11px 14px;border-radius:var(--radius);margin-bottom:16px;font-size:.86rem;
@@ -210,10 +214,12 @@ dialog::backdrop{background:rgba(15,23,42,.5)}
       <a href="/staff" class="{% if page=='staff' %}active{% endif %}">{{ t('staff_plural') }}</a>
       <a href="/staff/hours" class="{% if page=='hours' %}active{% endif %}">{{ t('nav_hours') }}</a>
       <a href="/staff/equipment" class="{% if page=='equipment' %}active{% endif %}">{{ t('nav_equipment') }}</a>
+      <a href="/kpi" class="{% if page=='kpi' %}active{% endif %}">{{ t('nav_kpi') }}</a>
 
       <div class="nav-group">{{ t('nav_projects') }}</div>
       <a href="/projects" class="{% if page=='projects' %}active{% endif %}">{{ t('projects') }}</a>
       <a href="/budget" class="{% if page=='budget' %}active{% endif %}">{{ t('nav_budget') }}</a>
+      <a href="/pricing" class="{% if page=='pricing' %}active{% endif %}">{{ t('nav_pricing') }}</a>
 
       <div class="nav-group">{{ t('nav_reports') }}</div>
       <a href="/reports/cashflow" class="{% if page=='cashflow' %}active{% endif %}">{{ t('nav_cashflow') }}</a>
@@ -221,6 +227,7 @@ dialog::backdrop{background:rgba(15,23,42,.5)}
 
       <div class="nav-group">{{ t('nav_admin') }}</div>
       <a href="/counterparties" class="{% if page=='counterparties' %}active{% endif %}">{{ t('nav_counterparties') }}</a>
+      <a href="/bank-accounts" class="{% if page=='bank_accounts' %}active{% endif %}">{{ t('nav_bank_accounts') }}</a>
       <a href="/accounts" class="{% if page=='accounts' %}active{% endif %}">{{ t('nav_accounts') }}</a>
       <a href="/settings" class="{% if page=='settings' %}active{% endif %}">{{ t('nav_settings') }}</a>
     </nav>

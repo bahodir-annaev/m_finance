@@ -1,0 +1,225 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block heading %}{{ t('nav_pricing') }}{% endblock %}
+{% block topbar_extra %}{{ t('target_margin') }}: {{ (target_margin * 100)|round|int }}%{% endblock %}
+
+{% block content %}
+{# ── Scratch quote: a prospect with no project record ── #}
+<div class="card">
+  <div class="card-head"><h2>{{ t('scratch_quote') }}</h2>
+    <span class="hint">{{ t('scratch_quote_hint') }}</span></div>
+
+  <div class="card-body" style="border-bottom:1px solid var(--line)">
+    <div class="split">
+      <div class="filters">
+        <div class="field"><label>{{ t('risk_deadline') }}</label>
+          <select id="q_deadline" onchange="qCalc()">
+            <option value="10">&gt; 8</option>
+            <option value="6" selected>4–8</option>
+            <option value="3">&lt; 4</option>
+          </select></div>
+        <div class="field"><label>{{ t('risk_client_type') }}</label>
+          <select id="q_client_type" onchange="qCalc()">
+            {% for c in client_types %}<option value="{{ c }}" {% if c=='new' %}selected{% endif %}>{{ t('client_' ~ c) }}</option>{% endfor %}
+          </select></div>
+        <div class="field"><label>{{ t('risk_complexity') }}</label>
+          <select id="q_complexity" onchange="qCalc()">
+            {% for c in complexities %}<option value="{{ c }}" {% if c=='medium' %}selected{% endif %}>{{ t('complexity_' ~ c) }}</option>{% endfor %}
+          </select></div>
+        <div class="field"><label>{{ t('risk_currency') }}</label>
+          <select id="q_currency" onchange="qCalc()">
+            <option value="UZS" selected>UZS</option><option value="USD">USD</option>
+            <option value="EUR">EUR / {{ t('other') }}</option>
+          </select></div>
+        <div class="field"><label>{{ t('risk_coefficient') }}</label>
+          <div style="font-size:1.2rem;font-weight:600;color:var(--brand)" id="qRisk">—</div></div>
+      </div>
+      <div class="tiles" id="qTiles" style="margin:0">
+        <div class="tile"><div class="label">{{ t('minimum_price') }}</div>
+          <div class="value neg" id="qMin">—</div><div class="sub" id="qMinUsd"></div></div>
+        <div class="tile brand"><div class="label">{{ t('target_price') }}</div>
+          <div class="value" id="qTarget">—</div><div class="sub" id="qTargetUsd"></div></div>
+        <div class="tile"><div class="label">{{ t('premium_price') }}</div>
+          <div class="value" id="qPremium">—</div><div class="sub" id="qPremiumUsd"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="table-wrap"><table class="linegrid" style="font-size:.82rem">
+    <thead><tr>
+      <th style="min-width:150px">{{ t('milestone') }}</th>
+      <th>{{ t('work_type') }}</th>
+      <th>{{ t('start_date') }}</th><th>{{ t('end_date') }}</th>
+      <th style="min-width:220px">{{ t('staff_plural') }} — {{ t('hours') }}</th>
+      <th>{{ t('planned_outsourcing') }}</th><th>{{ t('planned_material') }}</th>
+      <th class="num">{{ t('expense') }}</th><th class="num">{{ t('target_price') }}</th>
+      <th class="num">Σ {{ t('expense') }}</th><th class="num">Σ {{ t('target_price') }}</th>
+      <th style="width:1%"></th>
+    </tr></thead>
+    <tbody id="qRows"></tbody>
+    <tfoot><tr class="total-row">
+      <td colspan="7">{{ t('total') }}</td>
+      <td class="num" id="qTotExpense">0</td>
+      <td class="num" id="qTotPrice">0</td>
+      <td colspan="3"></td>
+    </tr></tfoot>
+  </table></div>
+
+  <div class="card-body" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <button type="button" class="btn btn-sm" onclick="qAddRow()">+ {{ t('add_line') }}</button>
+    <button type="button" class="btn btn-sm" onclick="qFillTemplate()">{{ t('standard_schedule') }}</button>
+    <button type="button" class="btn btn-sm btn-primary" onclick="qCalc()">{{ t('calculate') }}</button>
+    {% if current_user.can('manager') %}
+    <span style="margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+      <select id="qSaveProject" style="width:auto">
+        <option value="">— {{ t('project') }} —</option>
+        {% for p in projects %}<option value="{{ p.id }}">{{ p.name }}{% if p.ms_total %} ({{ p.ms_total }}){% endif %}</option>{% endfor %}
+      </select>
+      <label class="checkbox" style="margin:0"><input type="checkbox" id="qOverwrite"> {{ t('overwrite_milestones') }}</label>
+      <button type="button" class="btn btn-sm" onclick="qSave()">{{ t('save_quote') }}</button>
+    </span>
+    {% endif %}
+  </div>
+</div>
+
+{# ── Project picker: the full workspace lives on the project page ── #}
+<div class="card">
+  <div class="card-head"><h2>{{ t('projects') }}</h2>
+    <span class="hint">{{ t('pricing_pick_hint') }}</span></div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>{{ t('project') }}</th><th>{{ t('client') }}</th>
+      <th class="num">{{ t('milestones') }}</th><th class="num">{{ t('contract_amount') }}</th>
+      <th>{{ t('plan_frozen') }}</th><th style="width:1%"></th></tr></thead>
+    <tbody>
+    {% for p in projects %}
+    <tr>
+      <td><b>{{ p.name }}</b></td>
+      <td class="muted">{{ p.client_name or '—' }}</td>
+      <td class="num">{{ p.ms_done }}/{{ p.ms_total }}</td>
+      <td class="num">{{ fmt(p.contract_amount) }}</td>
+      <td>{% if p.plan_frozen_date %}<span class="badge badge-ok">{{ p.plan_frozen_date }}</span>
+          {% else %}<span class="badge badge-draft">{{ t('no_plan') }}</span>{% endif %}</td>
+      <td><a href="/projects/{{ p.id }}" class="btn btn-sm">{{ t('open') }} &raquo;</a></td>
+    </tr>
+    {% else %}{{ m.empty_row(6, t) }}{% endfor %}
+    </tbody>
+  </table></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+var WORK_TYPES = {{ work_types|map(attribute='code')|list|tojson }};
+var WORK_LABELS = {{ work_types|map(attribute='label_uz')|list|tojson }};
+var Q_STAFF = {{ staff_rates|map(attribute='id')|list|tojson }};
+var Q_STAFF_NAMES = {{ staff_rates|map(attribute='name')|list|tojson }};
+var STANDARD = {{ standard_schedule|tojson }};
+var Q_ERR = {empty: {{ t('quote_err_empty')|tojson }}, exists: {{ t('quote_err_exists')|tojson }},
+             locked: {{ t('quote_err_locked')|tojson }}};
+var Q_SAVED = {{ t('quote_saved')|tojson }};
+
+function qFmt(n, dec){ return (n || 0).toLocaleString('en-US', {maximumFractionDigits: dec || 0}); }
+function qOptions(vals, labels){
+  var html = '<option value=""></option>';
+  vals.forEach(function(v, i){ html += '<option value="' + v + '">' + labels[i] + '</option>'; });
+  return html;
+}
+function qAddRow(name, wt){
+  var tr = document.createElement('tr');
+  tr.className = 'q-row';
+  tr.innerHTML =
+    '<td><input class="q-name"></td>' +
+    '<td><select class="q-wt">' + qOptions(WORK_TYPES, WORK_LABELS) + '</select></td>' +
+    '<td><input type="month" class="q-start"></td>' +
+    '<td><input type="month" class="q-end"></td>' +
+    '<td><div class="q-staff"></div>' +
+      '<button type="button" class="btn btn-sm btn-icon" onclick="qAddStaff(this.closest(\'tr\'))">+</button></td>' +
+    '<td><input type="number" class="q-out" value="0" min="0" step="1000"></td>' +
+    '<td><input type="number" class="q-mat" value="0" min="0" step="1000"></td>' +
+    '<td class="num q-expense">0</td><td class="num q-price">0</td>' +
+    '<td class="num muted q-cum-expense">0</td><td class="num muted q-cum-price">0</td>' +
+    '<td><button type="button" class="del" onclick="this.closest(\'tr\').remove();qCalc()">&times;</button></td>';
+  document.getElementById('qRows').appendChild(tr);
+  if (name) tr.querySelector('.q-name').value = name;
+  if (wt) tr.querySelector('.q-wt').value = wt;
+  qAddStaff(tr);
+  return tr;
+}
+function qAddStaff(tr){
+  var div = document.createElement('div');
+  div.style.cssText = 'display:flex;gap:4px;margin-bottom:3px';
+  div.innerHTML =
+    '<select class="q-sid" style="flex:1">' + qOptions(Q_STAFF, Q_STAFF_NAMES) + '</select>' +
+    '<input type="number" class="q-shrs" value="0" min="0" step="0.5" style="width:70px">' +
+    '<button type="button" class="del" onclick="this.parentNode.remove()">&times;</button>';
+  tr.querySelector('.q-staff').appendChild(div);
+}
+function qFillTemplate(){
+  document.getElementById('qRows').innerHTML = '';
+  STANDARD.forEach(function(r){ qAddRow(r.name, r.work_type); });
+}
+function qPayload(){
+  var rows = [];
+  document.querySelectorAll('#qRows .q-row').forEach(function(tr){
+    var staff = [];
+    tr.querySelectorAll('.q-staff > div').forEach(function(d){
+      staff.push({staff_id: d.querySelector('.q-sid').value,
+                  hours: parseFloat(d.querySelector('.q-shrs').value) || 0});
+    });
+    rows.push({name: tr.querySelector('.q-name').value, work_type: tr.querySelector('.q-wt').value,
+               start: tr.querySelector('.q-start').value, end: tr.querySelector('.q-end').value,
+               outsourcing: parseFloat(tr.querySelector('.q-out').value) || 0,
+               material: parseFloat(tr.querySelector('.q-mat').value) || 0, staff: staff});
+  });
+  return {rows: rows, risk: {
+    deadline_months: document.getElementById('q_deadline').value,
+    client_type: document.getElementById('q_client_type').value,
+    complexity: document.getElementById('q_complexity').value,
+    currency: document.getElementById('q_currency').value}};
+}
+function qCalc(){
+  var body = qPayload();
+  if (!body.rows.length) return;
+  fetch('/api/pricing/quote', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                               body: JSON.stringify(body)})
+    .then(function(r){ return r.json(); })
+    .then(function(res){
+      if (res.status !== 'ok') { alert(res.error || 'Error'); return; }
+      var q = res.quote, trs = document.querySelectorAll('#qRows .q-row');
+      q.rows.forEach(function(row, i){
+        if (!trs[i]) return;
+        trs[i].querySelector('.q-expense').textContent = qFmt(row.expense);
+        trs[i].querySelector('.q-price').textContent = qFmt(row.price);
+        trs[i].querySelector('.q-cum-expense').textContent = qFmt(row.cum_expense);
+        trs[i].querySelector('.q-cum-price').textContent = qFmt(row.cum_price);
+      });
+      document.getElementById('qTotExpense').textContent = qFmt(q.total_expense);
+      document.getElementById('qTotPrice').textContent = qFmt(q.plan_revenue_total);
+      document.getElementById('qMin').textContent = qFmt(q.minimum_contract);
+      document.getElementById('qTarget').textContent = qFmt(q.target_contract);
+      document.getElementById('qPremium').textContent = qFmt(q.premium_contract);
+      document.getElementById('qMinUsd').textContent = '$' + qFmt(q.minimum_usd);
+      document.getElementById('qTargetUsd').textContent = '$' + qFmt(q.target_usd);
+      document.getElementById('qPremiumUsd').textContent = '$' + qFmt(q.premium_usd);
+      document.getElementById('qRisk').textContent = q.risk_coeff + ' (' + q.risk_score + ')';
+    }).catch(function(){ alert('Error'); });
+}
+function qSave(){
+  var pid = document.getElementById('qSaveProject').value;
+  if (!pid) { alert(Q_ERR.empty); return; }
+  var body = qPayload();
+  body.project_id = pid;
+  body.overwrite = document.getElementById('qOverwrite').checked;
+  fetch('/api/pricing/quote/save', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                    body: JSON.stringify(body)})
+    .then(function(r){ return r.json(); })
+    .then(function(res){
+      if (res.status !== 'ok') { alert(Q_ERR[res.error] || res.error || 'Error'); return; }
+      alert(Q_SAVED.replace('{}', res.created));
+      window.location = '/projects/' + res.project_id;
+    }).catch(function(){ alert('Error'); });
+}
+document.addEventListener('input', function(e){ if (e.target.closest('#qRows')) qCalc(); });
+qFillTemplate();
+</script>
+{% endblock %}

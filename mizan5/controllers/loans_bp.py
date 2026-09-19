@@ -1,16 +1,17 @@
 """Loans — the register; every movement of money is a document.
 
 The register holds the terms. The balance is not stored: it is the ledger
-balance on 6820/7820 (money we borrowed) or 5820 (money we lent), which means
-a loan can never disagree with the books.
+balance on 6820/7820 (money we borrowed) or 5820 (money we lent) for this
+loan's own documents, which means a loan can never disagree with the books.
+A loan closes itself when its principal is repaid (models.loans.sync_loan_status).
 """
 from flask import Blueprint, request, redirect, flash
 from flask_login import login_required
 
 from auth import require_level
 from models import (
-    get_db, now_ts, today_str, save_document, post_document, account_id_for,
-    account_balance, DocumentError, PostingError, get_lookup, list_documents,
+    get_db, today_str, list_loans, loan_summary, save_loan, post_loan_issue,
+    record_loan_payment, DocumentError, PostingError, get_lookup, list_bank_accounts,
 )
 from utils import render_page, t, parse_float, parse_int
 
@@ -20,30 +21,23 @@ bp = Blueprint('loans', __name__)
 @bp.route('/loans')
 @login_required
 def loans_page():
+    rows = list_loans()
     conn = get_db()
     try:
-        rows = [dict(r) for r in conn.execute(
-            "SELECT l.*, c.name AS counterparty_name FROM loans l"
-            " LEFT JOIN counterparties c ON c.id = l.counterparty_id"
-            " ORDER BY l.status, l.issue_date DESC")]
         counterparties = [dict(r) for r in conn.execute(
             "SELECT id, name FROM counterparties WHERE is_active=1 ORDER BY name")]
     finally:
         conn.close()
-
-    for r in rows:
-        purpose = ('loan_long_in' if r['term'] == 'long' else 'loan_short_in') \
-            if r['loan_type'] == 'olgan' else 'loan_issued'
-        r['ledger_balance'] = account_balance(
-            account_id=account_id_for(purpose), counterparty_id=r['counterparty_id'])
-        r['documents'] = list_documents(doc_type='loan', limit=100)
-
+    summary = loan_summary(rows)
     return render_page('loans', 'loans.html', rows=rows,
+                       taken=[r for r in rows if r['loan_type'] == 'olgan'],
+                       given=[r for r in rows if r['loan_type'] == 'bergan'],
+                       summary=summary,
                        counterparties=counterparties,
                        payment_types=get_lookup('payment_types'),
+                       bank_accounts=list_bank_accounts(),
                        today=today_str(),
-                       borrowed=account_balance('6820') + account_balance('7820'),
-                       lent=account_balance('5820'),
+                       borrowed=summary['borrowed'], lent=summary['lent'],
                        title=t('nav_loans'))
 
 
@@ -65,34 +59,16 @@ def loan_save():
         'status': request.form.get('status') or 'ochiq',
         'notes': request.form.get('notes') or None,
     }
-    conn = get_db()
-    try:
-        if loan_id:
-            sets = ', '.join(f'{k}=?' for k in fields)
-            conn.execute(f"UPDATE loans SET {sets}, updated_at=? WHERE id=?",
-                         list(fields.values()) + [now_ts(), loan_id])
-        else:
-            cols = ','.join(fields)
-            ph = ','.join('?' * len(fields))
-            cur = conn.execute(f"INSERT INTO loans ({cols}) VALUES ({ph})",
-                               list(fields.values()))
-            loan_id = cur.lastrowid
-        conn.commit()
-    finally:
-        conn.close()
+    loan_id = save_loan(fields, loan_id)
 
     # Booking the money is optional at creation: a loan agreed today may only
     # be disbursed next week, and the register should not force a fake date.
     if request.form.get('post_now') and fields['total_amount'] > 0:
         try:
-            doc_id = save_document({
-                'doc_type': 'loan', 'date': fields['issue_date'],
-                'counterparty_id': fields['counterparty_id'], 'loan_id': loan_id,
-                'currency': fields['currency'],
-                'total': fields['total_amount'],
-                'payment_method': request.form.get('payment_method') or 'bank',
-                'description': fields['description'] or t('doc_loan')})
-            post_document(doc_id)
+            post_loan_issue({**fields, 'id': loan_id},
+                            payment_method=request.form.get('payment_method') or 'bank',
+                            bank_account_id=parse_int(request.form.get('bank_account_id')),
+                            description=fields['description'] or t('doc_loan'))
             flash(f'<div class="alert alert-success">{t("doc_posted_ok")}</div>', 'success')
         except (DocumentError, PostingError) as e:
             flash(f'<div class="alert alert-error">{t(e.key)} {e.detail}</div>', 'error')
@@ -106,45 +82,21 @@ def loan_save():
 @require_level('manager')
 def loan_payment(loan_id):
     """Repayment: principal against the loan account, interest to 9610/9530."""
-    conn = get_db()
-    try:
-        loan = conn.execute("SELECT * FROM loans WHERE id=?", (loan_id,)).fetchone()
-    finally:
-        conn.close()
-    if not loan:
-        return redirect('/loans')
-
     principal = parse_float(request.form.get('principal'))
     interest = parse_float(request.form.get('interest'))
     if principal <= 0 and interest <= 0:
         flash(f'<div class="alert alert-error">{t("required_field")}</div>', 'error')
         return redirect('/loans')
-
-    borrowed = loan['loan_type'] == 'olgan'
-    principal_purpose = ('loan_long_in' if loan['term'] == 'long' else 'loan_short_in') \
-        if borrowed else 'loan_issued'
-    interest_purpose = 'interest_expense' if borrowed else 'interest_income'
-
-    lines = []
-    if principal > 0:
-        lines.append({'account_id': account_id_for(principal_purpose),
-                      'amount': principal, 'counterparty_id': loan['counterparty_id'],
-                      'description': f'{t("doc_loan")} — asosiy qarz'})
-    if interest > 0:
-        lines.append({'account_id': account_id_for(interest_purpose),
-                      'amount': interest, 'counterparty_id': loan['counterparty_id'],
-                      'description': f'{t("doc_loan")} — foiz'})
-
     try:
-        doc_id = save_document({
-            'doc_type': 'cash_out' if borrowed else 'cash_in',
-            'date': request.form.get('date') or today_str(),
-            'counterparty_id': loan['counterparty_id'], 'loan_id': loan_id,
-            'total': principal + interest,
-            'payment_method': request.form.get('payment_method') or 'bank',
-            'description': f'{t("doc_loan")} #{loan_id}'}, lines=lines)
-        post_document(doc_id)
+        record_loan_payment(
+            loan_id, principal=principal, interest=interest,
+            date=request.form.get('date') or today_str(),
+            payment_method=request.form.get('payment_method') or 'bank',
+            bank_account_id=parse_int(request.form.get('bank_account_id')),
+            label=t('doc_loan'))
         flash(f'<div class="alert alert-success">{t("doc_posted_ok")}</div>', 'success')
+    except ValueError:
+        flash(f'<div class="alert alert-error">{t("error")}</div>', 'error')
     except (DocumentError, PostingError) as e:
         flash(f'<div class="alert alert-error">{t(e.key)} {e.detail}</div>', 'error')
     return redirect('/loans')

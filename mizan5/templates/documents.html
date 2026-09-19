@@ -26,8 +26,29 @@
         <option value="{{ s }}" {% if filters.status==s %}selected{% endif %}>{{ t(s) }}</option>
         {% endfor %}
       </select></div>
+    <div class="field"><label>{{ t('direction') }}</label>
+      <select name="direction">
+        <option value="">{{ t('all') }}</option>
+        {% for d in directions %}
+        <option value="{{ d }}" {% if filters.direction==d %}selected{% endif %}>
+          {{ t('dir_' ~ d) }}</option>
+        {% endfor %}
+      </select></div>
+    <div class="field"><label>{{ t('counterparty') }}</label>
+      <select name="counterparty_id"><option value="">{{ t('all') }}</option>
+        {% for c in counterparties %}<option value="{{ c.id }}" {% if filters.counterparty_id==c.id %}selected{% endif %}>{{ c.name }}</option>{% endfor %}
+      </select></div>
+    <div class="field"><label>{{ t('project') }}</label>
+      <select name="project_id"><option value="">{{ t('all') }}</option>
+        {% for p in projects %}<option value="{{ p.id }}" {% if filters.project_id==p.id %}selected{% endif %}>{{ p.name }}</option>{% endfor %}
+      </select></div>
+    <div class="field"><label>{{ t('responsible') }}</label>
+      <select name="responsible_id"><option value="">{{ t('all') }}</option>
+        {% for st in staff %}<option value="{{ st.id }}" {% if filters.responsible_id==st.id %}selected{% endif %}>{{ st.name }}</option>{% endfor %}
+      </select></div>
     <div class="field" style="min-width:180px"><label>{{ t('search') }}</label>
       <input type="search" name="q" value="{{ filters.search or '' }}"></div>
+    <input type="hidden" name="per_page" value="{{ per_page }}">
     <button class="btn">{{ t('filter') }}</button>
     <a class="btn" href="/documents/{{ doc_type }}">{{ t('reset') }}</a>
   </form>
@@ -35,17 +56,21 @@
   <div class="table-wrap">
     <table>
       <thead><tr>
-        <th>{{ t('date') }}</th>
-        <th>{{ t('doc_number') }}</th>
+        {{ m.sort_th('date', t('date'), sort, sort_dir, base_args) }}
+        {{ m.sort_th('number', t('doc_number'), sort, sort_dir, base_args) }}
         {% if is_invoice %}<th>{{ t('external_number') }}</th>{% endif %}
-        <th>{{ t('counterparty') }}</th>
+        {{ m.sort_th('counterparty', t('counterparty'), sort, sort_dir, base_args) }}
+        {% if is_cash %}<th>{{ t('bank_account') }}</th>{% endif %}
         <th>{{ t('description') }}</th>
-        {% if is_invoice %}<th>{{ t('project') }}</th><th class="num">{{ t('net_amount') }}</th>
+        <th>{{ t('responsible') }}</th>
+        {% if is_invoice %}{{ m.sort_th('project', t('project'), sort, sort_dir, base_args) }}
+        <th class="num">{{ t('net_amount') }}</th>
         <th class="num">{{ t('vat') }}</th>{% endif %}
-        <th class="num">{{ t('total') }}</th>
-        {% if is_invoice %}<th class="num">{{ t('outstanding') }}</th>{% endif %}
+        {{ m.sort_th('total', t('total'), sort, sort_dir, base_args, cls='num') }}
+        {% if is_invoice %}{{ m.sort_th('outstanding', t('outstanding'), sort, sort_dir, base_args, cls='num') }}{% endif %}
         {% if is_cash %}<th class="num">{{ t('unallocated') }}</th>{% endif %}
-        <th>{{ t('status') }}</th>
+        <th>{{ t('direction') }}</th>
+        {{ m.sort_th('status', t('status'), sort, sort_dir, base_args) }}
         <th style="width:1%">{{ t('actions') }}</th>
       </tr></thead>
       <tbody>
@@ -55,7 +80,9 @@
           <td><a href="/documents/{{ r.id }}">{{ r.number }}</a></td>
           {% if is_invoice %}<td class="muted">{{ r.external_number or '—' }}</td>{% endif %}
           <td>{{ r.counterparty_name or '—' }}</td>
+          {% if is_cash %}<td class="muted nowrap">{{ r.bank_account_name or '—' }}</td>{% endif %}
           <td class="muted">{{ r.description or '' }}</td>
+          <td class="muted">{{ r.responsible_name or '—' }}</td>
           {% if is_invoice %}
           <td class="muted">{{ r.project_name or '—' }}</td>
           <td class="num">{{ fmt(r.subtotal) }}</td>
@@ -70,6 +97,7 @@
           {% if is_cash %}
           <td class="num {% if r.unallocated > 0 %}muted{% endif %}">{{ fmt(r.unallocated) }}</td>
           {% endif %}
+          <td><span class="badge badge-{{ r.direction }}">{{ t('dir_' ~ r.direction) }}</span></td>
           <td>{{ m.status_badge(r.status, t) }}</td>
           <td class="nowrap">
             {% if r.status == 'draft' %}
@@ -86,22 +114,24 @@
           </td>
         </tr>
         {% else %}
-          {{ m.empty_row(12, t) }}
+          {{ m.empty_row(14, t) }}
         {% endfor %}
       </tbody>
       {% if rows %}
       <tfoot><tr class="total-row">
-        <td colspan="{% if is_invoice %}6{% else %}4{% endif %}">{{ t('total') }} — {{ rows|length }}</td>
+        <td colspan="{% if is_invoice %}7{% elif is_cash %}6{% else %}5{% endif %}">{{ t('total') }} — {{ rows|length }} / {{ total_count }}</td>
         {% if is_invoice %}<td class="num">{{ fmt(totals.total - rows|sum(attribute='vat_amount')) }}</td>
         <td class="num">{{ fmt(rows|sum(attribute='vat_amount')) }}</td>{% endif %}
         <td class="num">{{ fmt(totals.total) }}</td>
         {% if is_invoice %}<td class="num">{{ fmt(totals.outstanding) }}</td>{% endif %}
         {% if is_cash %}<td></td>{% endif %}
-        <td colspan="2"></td>
+        <td colspan="3"></td>
       </tr></tfoot>
       {% endif %}
     </table>
   </div>
+  {{ m.pager(cur_page, total_pages, total_count, per_page, per_page_choices,
+             dict(base_args, sort=sort, dir=sort_dir), t) }}
 </div>
 
 {# ── Entry modal ────────────────────────────────────────────────────────── #}
@@ -147,6 +177,7 @@
       <select name="payment_method" data-reset>
         {% for p in payment_types %}<option value="{{ p.code }}">{{ p.label_uz }}</option>{% endfor %}
       </select></div>
+    {{ m.bank_account_select(bank_accounts, t, id='bankAccountField') }}
     <div class="field"><label>{{ t('amount') }} *</label>
       <input name="total" type="number" step="0.01" data-reset required></div>
     <div class="field"><label>{{ t('cash_purpose') }}</label>
@@ -159,8 +190,14 @@
       </select></div>
   </div>
 
-  <div class="field"><label>{{ t('description') }}</label>
-    <input name="description" data-reset></div>
+  <div class="grid grid-3">
+    <div class="field" style="grid-column:span 2"><label>{{ t('description') }}</label>
+      <input name="description" data-reset></div>
+    <div class="field"><label>{{ t('responsible') }}</label>
+      <select name="responsible_id" data-reset><option value="">—</option>
+        {% for st in staff %}<option value="{{ st.id }}">{{ st.name }}</option>{% endfor %}
+      </select></div>
+  </div>
 
   {# ── Invoice line items ── #}
   {% if is_invoice %}
@@ -325,5 +362,35 @@ document.addEventListener('DOMContentLoaded', () => {
   const grid = document.getElementById('lineGrid');
   if (grid && !grid.querySelector('tbody').children.length) addLine('lineGrid');
 });
+
+/* Bank account applies to bank money only: hide it for cash-till payments and
+   offer only accounts in the document's currency. Purely a convenience — the
+   posting rule re-checks both server-side. */
+(() => {
+  const dlg = document.getElementById('docModal');
+  const field = document.getElementById('bankAccountField');
+  if (!dlg || !field) return;
+  const method = dlg.querySelector('[name=payment_method]');
+  const currency = dlg.querySelector('[name=currency]');
+  const sel = field.querySelector('select');
+  function sync() {
+    field.hidden = method && method.value === 'naqd';
+    const cur = currency ? currency.value : 'UZS';
+    let visibleSelected = false;
+    sel.querySelectorAll('option[data-currency]').forEach(o => {
+      o.hidden = o.dataset.currency !== cur;
+      if (!o.hidden && o.selected) visibleSelected = true;
+    });
+    if (!visibleSelected) {
+      const first = sel.querySelector('option[data-currency="' + cur + '"]');
+      sel.value = first ? first.value : '';
+    }
+  }
+  if (method) method.addEventListener('change', sync);
+  if (currency) currency.addEventListener('change', sync);
+  dlg.addEventListener('toggle', sync);
+  const orig = window.fillForm;
+  window.fillForm = function (d, data) { orig(d, data); if (d === dlg) sync(); };
+})();
 </script>
 {% endblock %}

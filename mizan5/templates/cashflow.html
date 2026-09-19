@@ -24,24 +24,61 @@
   <div class="table-wrap"><table>
     <thead><tr><th>{{ t('period') }}</th>
       <th class="num">{{ t('cash_in_total') }}</th><th class="num">{{ t('cash_out_total') }}</th>
+      <th class="num">{{ t('external_in') }}</th><th class="num">{{ t('external_out') }}</th>
+      <th class="num">{{ t('internal_out') }}</th><th class="num">{{ t('financing_net') }}</th>
       <th class="num">{{ t('net_cash_flow') }}</th><th class="num">{{ t('running_balance') }}</th>
     </tr></thead>
     <tbody>
-      <tr><td class="muted">{{ t('opening_balance') }}</td><td colspan="3"></td>
+      <tr><td class="muted">{{ t('opening_balance') }}</td><td colspan="7"></td>
         <td class="num muted">{{ fmt(cf.opening) }}</td></tr>
       {% for r in cf.rows %}
       <tr><td><b>{{ r.period }}</b></td>
         <td class="num pos">{{ fmt(r.inflow) }}</td>
         <td class="num neg">{{ fmt(r.outflow) }}</td>
+        <td class="num muted">{{ fmt(r.external_in) }}</td>
+        <td class="num muted">{{ fmt(r.external_out) }}</td>
+        <td class="num muted">{{ fmt(r.internal_out) }}</td>
+        <td class="num muted">{{ fmt(r.financing_in - r.financing_out) }}</td>
         <td class="num {% if r.net >= 0 %}pos{% else %}neg{% endif %}">{{ fmt(r.net) }}</td>
         <td class="num"><b>{{ fmt(r.running_balance) }}</b></td></tr>
-      {% else %}{{ m.empty_row(5, t) }}{% endfor %}
+      {% else %}{{ m.empty_row(9, t) }}{% endfor %}
     </tbody>
     {% if cf.rows %}
+    {% set td = cf.totals_by_direction %}
     <tfoot><tr class="total-row"><td>{{ t('total') }}</td>
       <td class="num">{{ fmt(cf.total_in) }}</td><td class="num">{{ fmt(cf.total_out) }}</td>
+      <td class="num">{{ fmt(td.external['in']) }}</td>
+      <td class="num">{{ fmt(td.external.out) }}</td>
+      <td class="num">{{ fmt(td.internal.out) }}</td>
+      <td class="num">{{ fmt(td.financing['in'] - td.financing.out) }}</td>
       <td class="num">{{ fmt(cf.total_in - cf.total_out) }}</td>
       <td class="num">{{ fmt(cf.closing) }}</td></tr></tfoot>
+    {% endif %}
+  </table></div>
+  <div class="card-body tight"><p class="muted" style="font-size:.8rem;margin:0">
+    {{ t('cash_split_hint') }}</p></div>
+</div>
+
+<div class="card" style="max-width:720px">
+  <div class="card-head"><h2>{{ t('by_payment_method') }}</h2>
+    <span class="hint">{{ date_from }} — {{ date_to }}</span></div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>{{ t('payment_method') }}</th>
+      <th class="num">{{ t('cash_in_total') }}</th><th class="num">{{ t('cash_out_total') }}</th>
+      <th class="num">{{ t('net_cash_flow') }}</th></tr></thead>
+    <tbody>
+      {% for r in pay_summary.rows %}
+      <tr><td><b>{{ r['label_' ~ lang] or r.label_uz }}</b> <span class="faint">{{ r.method }}</span></td>
+        <td class="num pos">{{ fmt(r.cash_in) }}</td>
+        <td class="num neg">{{ fmt(r.cash_out) }}</td>
+        <td class="num {% if r.net >= 0 %}pos{% else %}neg{% endif %}">{{ fmt(r.net) }}</td></tr>
+      {% else %}{{ m.empty_row(4, t) }}{% endfor %}
+    </tbody>
+    {% if pay_summary.rows %}
+    <tfoot><tr class="total-row"><td>{{ t('total') }}</td>
+      <td class="num">{{ fmt(pay_summary.total_in) }}</td>
+      <td class="num">{{ fmt(pay_summary.total_out) }}</td>
+      <td class="num">{{ fmt(pay_summary.total_in - pay_summary.total_out) }}</td></tr></tfoot>
     {% endif %}
   </table></div>
 </div>

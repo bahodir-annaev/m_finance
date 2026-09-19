@@ -99,6 +99,7 @@ PAGES = [
     ('/documents/sales_invoice?direction=external', 'invoices filtered by direction'),
     ('/documents/manual', 'manual entry'),
     ('/documents/opening', 'opening balances'),
+    ('/documents/dividend', 'dividends'),
     ('/journal', 'journal'),
     ('/trial-balance', 'trial balance'),
     ('/accounts', 'chart of accounts'),
@@ -201,6 +202,24 @@ check('remittance clears the payroll liabilities',
       abs(account_balance('6710')) < 1 and abs(account_balance('6420.1')) < 1
       and abs(account_balance('6520')) < 1,
       f"{account_balance('6710')}/{account_balance('6420.1')}/{account_balance('6520')}")
+
+print('\n=== Dividend declaration through HTTP ===')
+r = client.get('/documents/dividend')
+check('dividend page is linked from the sidebar', b'href="/documents/dividend"' in r.data)
+check('dividend modal offers an amount input',
+      b'name="total"' in r.data, 'no total field rendered')
+r = client.post('/documents/dividend/save', data={
+    'date': '2026-06-30', 'counterparty_id': CLIENT, 'total': '5000000',
+    'currency': 'UZS', 'description': 'Dividend 2026 H1', 'post_now': '1',
+}, follow_redirects=True)
+check('dividend declaration posts through the form',
+      r.status_code == 200 and b'class="alert alert-success"' in r.data)
+# Both accounts are credit-normal, so the Dr 8710 shows as a negative balance
+# and the Cr 6610 as a positive one.
+check('retained earnings debited', abs(account_balance('8710') + 5000000) < 1,
+      str(account_balance('8710')))
+check('dividends payable credited', abs(account_balance('6610') - 5000000) < 1,
+      str(account_balance('6610')))
 
 print('\n=== Manual entry balance guard ===')
 r = client.post('/documents/manual/save', data={

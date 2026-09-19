@@ -290,7 +290,6 @@ Several useful pages are reached by link rather than by menu:
 |---|---|---|
 | **Manual Entry** | `/documents/manual` | The **[+ Manual entry]** button on `/journal` |
 | **Opening Balances** | `/documents/opening` | Type the address directly; used once at setup ([§19](#19-manual-entries-and-opening-balances)) |
-| **Dividend** | `/documents/dividend` | Type the address directly ([§18](#18-dividends)) |
 | **Account ledger** | `/accounts/<id>/card` | Click any account code on `/accounts`, `/trial-balance` or `/journal` |
 | **Overhead reconciliation** | `/rates/overhead` | The **[Ledger]** button on `/staff/equipment`, or the link on `/rates` |
 | **Project detail** | `/projects/<id>` | Click a project name on `/projects` |
@@ -1190,7 +1189,7 @@ the dialog is still there for a manual override (a written-off loan, for instanc
 
 ## 18. Dividends
 
-**Where:** `/documents/dividend` — type the address; it is not in the sidebar.
+**Where:** sidebar → Documents → **Dividends** (`/documents/dividend`)
 
 A dividend is two separate events, and they are usually on different dates.
 
@@ -1200,8 +1199,9 @@ A dividend is two separate events, and they are usually on different dates.
 Dr 8710  Retained earnings   |   Cr 6610  Dividends payable
 ```
 
-Enter it as a dividend document. Number format: **DV-2026-00002**. From this moment the
-founder is a creditor of the firm.
+Enter it as a dividend document: **[+ New]** → date, the founder as counterparty,
+**Amount**, description. Number format: **DV-2026-00002**. From this moment the founder
+is a creditor of the firm.
 
 **2. Payment** — the money leaving. Enter it as a normal **Money Out**
 ([§15](#15-money-out)) with one line on account **6610** and the founder as recipient:

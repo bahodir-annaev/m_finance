@@ -178,8 +178,16 @@
         {% for p in payment_types %}<option value="{{ p.code }}">{{ p.label_uz }}</option>{% endfor %}
       </select></div>
     {{ m.bank_account_select(bank_accounts, t, id='bankAccountField') }}
+    {% endif %}
+
+    {# Typed total: cash documents and the dividend declaration, which has no
+       line grid to add up (TYPED_TOTAL_TYPES in models/documents.py). #}
+    {% if is_cash or doc_type == 'dividend' %}
     <div class="field"><label>{{ t('amount') }} *</label>
       <input name="total" type="number" step="0.01" data-reset required></div>
+    {% endif %}
+
+    {% if is_cash %}
     <div class="field"><label>{{ t('cash_purpose') }}</label>
       <input name="cash_purpose" data-reset></div>
     {% endif %}

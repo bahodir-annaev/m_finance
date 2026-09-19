@@ -531,7 +531,7 @@ def _migrate_dividends(mig):
         seq += 1
         if _num(r['paid']) <= 0:
             continue
-        cp = mig.counterparty_for(conn, r['founder'] or 'Ta\'sischi', 'founder')
+        cp = mig.counterparty_for(r['founder'] or 'Ta\'sischi', 'founder')
         try:
             decl = save_document({
                 'doc_type': 'dividend', 'date': (r['date'] or '')[:10],

@@ -13,7 +13,8 @@
           <button class="btn btn-primary btn-sm">{{ t('post') }}</button></form>
         {% elif doc.status == 'posted' %}
         <form method="post" action="/documents/{{ doc.id }}/void"
-              onsubmit="return confirm('{{ t('void_action') }}?')">
+              data-confirm="{{ t('void_action') }}?"
+              onsubmit="return confirm(this.dataset.confirm)">
           <input type="hidden" name="next" value="/documents/{{ doc.id }}">
           <button class="btn btn-sm">{{ t('void_action') }}</button></form>
         {% endif %}

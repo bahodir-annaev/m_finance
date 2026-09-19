@@ -329,6 +329,44 @@ for code, marker in (('ru', 'Бухгалтерия'), ('en', 'Accounting'), ('u
     r = client.get('/')
     check(f'interface switches to {code}', marker.encode('utf-8') in r.data)
 
+# Uzbek text is full of apostrophes (o'chirish, bo'lmaydi). Dropped into a
+# single-quoted JS literal inside an onsubmit or <script>, one apostrophe ends
+# the string, the handler throws, and the form either submits unconfirmed or —
+# when the handler was also setting the action — POSTs to a GET-only URL (405).
+import re
+client.get('/lang/uz')
+# A bank account under 5110, registered after the cash_in above was posted, so
+# the page shows an Unassigned row with its Assign form.
+conn = get_db()
+ACC_5110 = conn.execute("SELECT id FROM accounts WHERE code='5110'").fetchone()['id']
+conn.close()
+r = client.post('/bank-accounts/save', data={
+    'account_id': ACC_5110, 'name': 'Asosiy hisob', 'account_number': '20208000900000000001',
+    'bank_name': 'Kapitalbank', 'currency': 'UZS', 'is_default': '1', 'is_active': '1',
+}, follow_redirects=True)
+check('bank account registers through the form', r.status_code == 200)
+body = client.get('/bank-accounts').data.decode('utf-8')
+check('unassigned 5110 lines offer an Assign form', '/assign-unassigned' in body)
+
+# A quoted JS literal with a word-internal apostrophe (o'ch, bo'l) inside it.
+bad_js = re.compile(r"""(confirm\(|textContent\s*=\s*)'[^'\n]*[A-Za-z]'[a-z]""")
+for url in ('/documents/cash_out', f'/documents/{inv_id}', '/periods',
+            f'/projects/{PROJECT}', '/bank-accounts', '/settings'):
+    body = client.get(url).data.decode('utf-8')
+    m = bad_js.search(body)
+    check(f'no apostrophe breaks inline JS on {url} in Uzbek', m is None,
+          m.group(0)[:100] if m else '')
+
+# The Assign form must post to the assign route, not to the GET-only list.
+conn = get_db()
+BANK = conn.execute("SELECT id FROM bank_accounts WHERE account_id=?", (ACC_5110,)).fetchone()['id']
+conn.close()
+r = client.post(f'/bank-accounts/{BANK}/assign-unassigned', follow_redirects=True)
+check('assign-unassigned posts through HTTP',
+      r.status_code == 200 and b'class="alert alert-success"' in r.data)
+body = client.get('/bank-accounts').data.decode('utf-8')
+check('nothing is left unassigned on 5110', '/assign-unassigned' not in body)
+
 print('\n=== v4 feature port through HTTP ===')
 # Scratch quote API — stateless, then saved into a project as milestones.
 quote_body = {'rows': [{'name': 'Eskiz', 'work_type': 'eskiz', 'start': '2027-01', 'end': '2027-02',
@@ -407,18 +445,21 @@ if hard:
     check('hard-closed period stays closed through the UI',
           r.status_code == 200 and get_period_status(hard[0]['code']) == 'hard_closed')
 
-# Loans: repayment through the form and auto-close.
+# Loans: repayment through the form and auto-close. 5110 is subdivided by now
+# (a bank account was registered above), so bank money must name its account.
 r = client.post('/loans/save', data={'loan_type': 'olgan', 'counterparty_id': VENDOR,
                                      'total_amount': '3000000', 'currency': 'UZS',
                                      'issue_date': '2026-08-01', 'term': 'short',
                                      'status': 'ochiq', 'post_now': '1',
-                                     'payment_method': 'bank'}, follow_redirects=True)
+                                     'payment_method': 'bank', 'bank_account_id': BANK},
+                follow_redirects=True)
 check('loan booked through the form', r.status_code == 200)
 conn = get_db()
 L2 = conn.execute("SELECT id FROM loans WHERE total_amount=3000000 ORDER BY id DESC LIMIT 1").fetchone()['id']
 conn.close()
 r = client.post(f'/loans/{L2}/payment', data={'principal': '3000000', 'interest': '100000',
-                                              'date': '2026-08-20', 'payment_method': 'bank'},
+                                              'date': '2026-08-20', 'payment_method': 'bank',
+                                              'bank_account_id': BANK},
                 follow_redirects=True)
 conn = get_db()
 st = conn.execute("SELECT status FROM loans WHERE id=?", (L2,)).fetchone()['status']

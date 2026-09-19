@@ -104,11 +104,13 @@
               <form method="post" action="/documents/{{ r.id }}/post" style="display:inline">
                 <button class="btn btn-sm btn-primary">{{ t('post') }}</button></form>
               <form method="post" action="/documents/{{ r.id }}/delete" style="display:inline"
-                    onsubmit="return confirm('{{ t('confirm_delete') }}')">
+                    data-confirm="{{ t('confirm_delete') }}"
+                    onsubmit="return confirm(this.dataset.confirm)">
                 <button class="btn btn-sm btn-icon">&times;</button></form>
             {% elif r.status == 'posted' %}
               <form method="post" action="/documents/{{ r.id }}/void" style="display:inline"
-                    onsubmit="return confirm('{{ t('void_action') }}?')">
+                    data-confirm="{{ t('void_action') }}?"
+                    onsubmit="return confirm(this.dataset.confirm)">
                 <button class="btn btn-sm">{{ t('void_action') }}</button></form>
             {% endif %}
           </td>

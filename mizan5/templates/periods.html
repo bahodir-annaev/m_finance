@@ -57,7 +57,8 @@
         <span class="badge badge-bad">{{ t(depreciation.error) }}</span>
       {% elif depreciation.total > 0 %}
         <form method="post" action="/periods/depreciate"
-              onsubmit="return confirm('{{ t('depreciation_confirm') }}')">
+              data-confirm="{{ t('depreciation_confirm') }}"
+              onsubmit="return confirm(this.dataset.confirm)">
           <input type="hidden" name="period" value="{{ depreciation.period }}">
           <button class="btn btn-sm btn-primary">{{ t('depreciation_post') }}</button>
         </form>
@@ -149,17 +150,20 @@
         <td class="nowrap">
           {% if p.status == 'open' %}
           <form method="post" action="/periods/close" style="display:inline"
-                onsubmit="return confirm('{{ t('period_close_warning') }}')">
+                data-confirm="{{ t('period_close_warning') }}"
+                onsubmit="return confirm(this.dataset.confirm)">
             <input type="hidden" name="period" value="{{ p.code }}">
             <input type="hidden" name="status" value="soft_closed">
             <button class="btn btn-sm">{{ t('soft_close') }}</button></form>
           <form method="post" action="/periods/close" style="display:inline"
-                onsubmit="return confirm('{{ t('period_close_warning') }}')">
+                data-confirm="{{ t('period_close_warning') }}"
+                onsubmit="return confirm(this.dataset.confirm)">
             <input type="hidden" name="period" value="{{ p.code }}">
             <button class="btn btn-sm">{{ t('close_period') }}</button></form>
           {% if not p.entries %}
           <form method="post" action="/periods/delete" style="display:inline"
-                onsubmit="return confirm('{{ t('confirm_delete') }}')">
+                data-confirm="{{ t('confirm_delete') }}"
+                onsubmit="return confirm(this.dataset.confirm)">
             <input type="hidden" name="period" value="{{ p.code }}">
             <button class="btn btn-sm btn-icon">&times;</button></form>
           {% endif %}

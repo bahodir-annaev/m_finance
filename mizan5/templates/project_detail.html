@@ -137,7 +137,8 @@
               'status': ms.status, 'notes': ms.notes}, t) }}
             <form method="post" style="display:inline"
                   action="/projects/{{ project.id }}/milestone/{{ ms.id }}/delete"
-                  onsubmit="return confirm('{{ t('confirm_delete') }}')">
+                  data-confirm="{{ t('confirm_delete') }}"
+                  onsubmit="return confirm(this.dataset.confirm)">
               <button class="btn btn-icon">&times;</button></form>
             {% endif %}
           </td>

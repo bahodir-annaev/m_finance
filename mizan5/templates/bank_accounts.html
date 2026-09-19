@@ -45,9 +45,14 @@
             {{ t('unassigned') }}
             <span class="faint">· {{ g.unassigned_lines }} {{ t('lines') }}</span>
             {% if g.banks and current_user.can('admin') %}
-            <form method="post" style="display:inline-flex;gap:6px;margin-left:12px"
+            {# The confirm text lives in a data attribute, not inline JS: the Uzbek
+               string contains an apostrophe, which would end a quoted JS literal. #}
+            <form method="post" class="assign-form"
+                  action="/bank-accounts/{{ (g.banks|selectattr('is_active')|first).id }}/assign-unassigned"
+                  data-confirm="{{ t('assign_unassigned_confirm') }}"
+                  style="display:inline-flex;gap:6px;margin-left:12px"
                   onsubmit="this.action='/bank-accounts/'+this.bank.value+'/assign-unassigned';
-                            return confirm('{{ t('assign_unassigned_confirm') }}')">
+                            return confirm(this.dataset.confirm)">
               <select name="bank" style="width:auto">
                 {% for b in g.banks %}{% if b.is_active %}
                 <option value="{{ b.id }}">{{ b.name }}</option>{% endif %}{% endfor %}

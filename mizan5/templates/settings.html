@@ -107,6 +107,8 @@
 <script>
 /* Pull the Central Bank rate for the chosen date into the rate box; the user
    still presses Save, so an outage only leaves the box empty. */
+/* tojson, not a quoted literal: the Uzbek text contains an apostrophe. */
+const CBU_FAILED = {{ t("fetch_cbu_failed")|tojson }};
 function fetchCbu(){
   const f = document.getElementById('rateForm');
   const note = document.getElementById('cbuNote');
@@ -116,9 +118,9 @@ function fetchCbu(){
     .then(r => r.json())
     .then(res => {
       if (res.rate) { f.querySelector('[name=rate]').value = res.rate; note.textContent = 'cbu.uz ' + (res.date || d) + ': ' + res.rate; }
-      else note.textContent = '{{ t("fetch_cbu_failed") }}: ' + (res.error || '');
+      else note.textContent = CBU_FAILED + ': ' + (res.error || '');
     })
-    .catch(() => { note.textContent = '{{ t("fetch_cbu_failed") }}'; });
+    .catch(() => { note.textContent = CBU_FAILED; });
 }
 </script>
 
